@@ -1,0 +1,40 @@
+
+> campus-emergency-drill@0.1.0 check:d1-v2
+> npm run check:d1 && tsx scripts/validate-d1-v2.ts
+
+
+> campus-emergency-drill@0.1.0 check:d1
+> npm run typecheck && npm run validate
+
+
+> campus-emergency-drill@0.1.0 typecheck
+> tsc --noEmit
+
+
+> campus-emergency-drill@0.1.0 validate
+> tsx scripts/validate-canonical.ts
+
+D1 canonical fixture validation PASSED
+buildings=8 junctions=1 roads=8 reports=10 actions=6 runs=3
+run-jia-1x [甲] 甄别=80 响应=100 命中=80 违规=70 总分=83 | 响应 45s, 违规 2 次, 缺项 1
+  sort U2,U8,U4 | correct=true | response action seq=1
+run-yi-1x [乙] 甄别=60 响应=0 命中=50 违规=55 总分=44 | 响应 250s, 违规 3 次, 缺项 4
+  sort U2,U8,U4 | correct=true | response action seq=16
+run-jia-plus-a4 [甲补做A4] 甄别=80 响应=100 命中=100 违规=70 总分=90 | 响应 45s, 违规 2 次, 缺项 0
+  sort U2,U8,U4 | correct=true | response action seq=1
+clock_checks: 1× = 45s, 4× = 45s (模拟时刻 30 → 75 固定)
+quality cases: SC-03 / SC-03b / SC-04 / SC-05 / SC-07 / SC-08 通过
+map: 三投影深度相等；GATE3=(500,520)；viewBox=40 40 880 560；8 条路段长度>0；三点折线=10；平移/改名由输入决定
+visibility: t=80 U1/U3/U2/U4/U5；t=300=10；U1 在 30/90/100 的窗口正确
+replay: seq20=5 accepted/4 rejected/5 占用；U1 改判指向 seq2；t=140/164/165 封路状态正确
+rejections: 甲 CN1×2/N7×2、违规 [14,20]；乙 A4×3、违规 [9,14,15]
+score: 83；改动/删减/新增/重排/未知 run 均 null；1×/4× 模拟时刻一致且响应 45s
+route: 静态 null + 空态文案；输入未被修改；专名/坐标/固定 viewBox 扫描通过；README 精度文案一致
+D1-v2 fixture port validation PASSED
+map: projections equal; GATE3=(500,520); viewBox=40 40 880 560; roads=8
+visibility: t=80 U1/U3/U2/U4/U5; t=300=10; U1 30=待核, 90=真报
+replay: jia seq20 5 accepted/4 rejected/5 occupancy; R-N7E flood at 140, closed at 165
+rejections: jia [14,20]; yi [9,14,15]
+score: jia 83; mutation=>null; 1x/4x response=45s
+route: null (pending); hardcode scan clean; README precision notice matched
+A 接口已测，B 页面待测（无页面，不以字符串存在替代 UI 验收）

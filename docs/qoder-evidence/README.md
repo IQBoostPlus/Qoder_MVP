@@ -36,6 +36,8 @@
 | --- | --- | --- | --- | --- |
 | D0 · 11/17（规划期） | 校园建筑数据真实化 + 手算样例三处矛盾对齐（v4.1） | A + B | [D0-2026-11-17-campus-data-v41.md](D0-2026-11-17-campus-data-v41.md) | 已留存（对话截图待补） |
 | D1 · 11/17 | 契约/fixture/校验器/DDL 对齐 v4.1 真实校区，复算 83/44/90 | A | [D1-2026-11-17-canonical-data-alignment.md](D1-2026-11-17-canonical-data-alignment.md) | 已留存 |
+| D1 · 11/17 | D1-v2 只读接口（地图/可见性/回放/道路/静态评分）+ 五项跨轨审计记录 | A | [D1-2026-11-17-engine-port.md](D1-2026-11-17-engine-port.md) | 已留存（Qoder 对话截图待补） |
+| D1 · 11/17 | `npm run check:d1-v2` 完整输出（含原 D1 回归） | A | [d1-v2-local-validation.log](d1-v2-local-validation.log) | 已留存 |
 | D1 · 11/17 | `npm run check:d1` 类型检查与 fixture 复算完整输出 | A | [d1-local-validation.log](d1-local-validation.log) | 已留存 |
 | D1 · 11/17 | Sites 建表 / Function 内读写 / Cloud Agent 连通性 spike | A | [d1-cloud-verification.md](d1-cloud-verification.md) | 已留存（DB 与 Agent 均通过；重试限制已记录） |
 | D1 · 11/17 | Function 内数据库读写结果截图 | A | [d1-function-db-success.png](d1-function-db-success.png) | 已留存 |
