@@ -7,7 +7,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "validate": "tsx scripts/validate-canonical.ts",
-    "check:d1": "npm run typecheck && npm run validate"
+    "check:d1": "npm run typecheck && npm run validate",
+    "check:d1-v2": "npm run check:d1 && tsx scripts/validate-d1-v2.ts"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

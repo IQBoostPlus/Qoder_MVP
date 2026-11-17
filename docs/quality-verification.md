@@ -191,6 +191,6 @@ v3 用「20～25 次点击」推算 3 分钟可达，**该推算不作为验收�
 
 | 日期 | 检查点/用例 | 结果 | 证据 | 后续动作 |
 | --- | --- | --- | --- | --- |
-| | | | `docs/qoder-evidence/…` | |
+| 2026-11-17 | D1-v2 静态接口：地图、可见性、回放、道路状态、拒绝与静态评分 | 通过（CLI） | [`D1-2026-11-17-engine-port.md`](qoder-evidence/D1-2026-11-17-engine-port.md)、[`d1-v2-local-validation.log`](qoder-evidence/d1-v2-local-validation.log) | B 接页面验收 CD-05、道路图例与空态；D4 仍待实时引擎验证一正一反 |
 
 每条实测记录须按 [`docs/qoder-evidence/README.md`](qoder-evidence/README.md) 的约定留存凭证：想完成什么 / 在 Qoder 中做了什么 / 如何验证 + 对话与结果截图。纯 CLI 验证保存命令与完整输出作为等效凭证。
