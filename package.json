@@ -1,0 +1,17 @@
+{
+  "name": "campus-emergency-drill",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Campus emergency desktop drill sandbox — D1 engine contracts and canonical fixture",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "validate": "tsx scripts/validate-canonical.ts",
+    "check:d1": "npm run typecheck && npm run validate"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}

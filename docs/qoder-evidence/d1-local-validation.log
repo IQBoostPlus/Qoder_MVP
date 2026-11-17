@@ -1,0 +1,22 @@
+
+> campus-emergency-drill@0.1.0 check:d1
+> npm run typecheck && npm run validate
+
+
+> campus-emergency-drill@0.1.0 typecheck
+> tsc --noEmit
+
+
+> campus-emergency-drill@0.1.0 validate
+> tsx scripts/validate-canonical.ts
+
+D1 canonical fixture validation PASSED
+buildings=8 junctions=1 roads=8 reports=10 actions=6 runs=3
+run-jia-1x [甲] 甄别=80 响应=100 命中=80 违规=70 总分=83 | 响应 45s, 违规 2 次, 缺项 1
+  sort U2,U8,U4 | correct=true | response action seq=1
+run-yi-1x [乙] 甄别=60 响应=0 命中=50 违规=55 总分=44 | 响应 250s, 违规 3 次, 缺项 4
+  sort U2,U8,U4 | correct=true | response action seq=16
+run-jia-plus-a4 [甲补做A4] 甄别=80 响应=100 命中=100 违规=70 总分=90 | 响应 45s, 违规 2 次, 缺项 0
+  sort U2,U8,U4 | correct=true | response action seq=1
+clock_checks: 1× = 45s, 4× = 45s (模拟时刻 30 → 75 固定)
+quality cases: SC-03 / SC-03b / SC-04 / SC-05 / SC-07 / SC-08 通过

@@ -1,0 +1,1089 @@
+{
+  "schema_version": "d1-1",
+  "generated_at": "2026-11-17",
+  "scenario": {
+    "id": "SC-NIGHT-DORM-01",
+    "template_id": "TPL-NIGHT-DORM-01",
+    "title": "夜间宿舍火灾 · 暴雨内涝（训练样例）",
+    "source": "canonical",
+    "modifiers": {
+      "night": true,
+      "heavy_rain": true,
+      "comms_outage": false,
+      "crowd_peak": false
+    },
+    "start_building_id": "N7",
+    "t_end": 300,
+    "nodes": [
+      { "id": "n030", "t_sim": 30, "label": "U1 出现；可判读并提交 A1", "events": [{ "type": "ugc_appear", "report_id": "U1" }] },
+      { "id": "n045", "t_sim": 45, "label": "U3 出现", "events": [{ "type": "ugc_appear", "report_id": "U3" }] },
+      { "id": "n060", "t_sim": 60, "label": "U2 出现", "events": [{ "type": "ugc_appear", "report_id": "U2" }] },
+      { "id": "n070", "t_sim": 70, "label": "U4 出现", "events": [{ "type": "ugc_appear", "report_id": "U4" }] },
+      { "id": "n080", "t_sim": 80, "label": "U5 出现", "events": [{ "type": "ugc_appear", "report_id": "U5" }] },
+      {
+        "id": "n090",
+        "t_sim": 90,
+        "label": "导调核实：北 7 三层确认真实火情",
+        "events": [
+          {
+            "type": "disaster_confirm",
+            "building_id": "N7",
+            "title": "北 7 三层确认为真实火情",
+            "adds_disaster_annotation": true
+          }
+        ]
+      },
+      { "id": "n100", "t_sim": 100, "label": "U6 出现；U1 可改判", "events": [{ "type": "ugc_appear", "report_id": "U6" }] },
+      { "id": "n110", "t_sim": 110, "label": "U7 出现", "events": [{ "type": "ugc_appear", "report_id": "U7" }] },
+      { "id": "n130", "t_sim": 130, "label": "U8 出现", "events": [{ "type": "ugc_appear", "report_id": "U8" }] },
+      {
+        "id": "n140",
+        "t_sim": 140,
+        "label": "U9 出现；R-N7E 积水阻断",
+        "events": [
+          { "type": "ugc_appear", "report_id": "U9" },
+          {
+            "type": "road_hazard",
+            "road_id": "R-N7E",
+            "hazard": "flood",
+            "description": "北 7 东侧至 3 号门积水过深，车辆无法通行"
+          }
+        ]
+      },
+      { "id": "n150", "t_sim": 150, "label": "U10 出现", "events": [{ "type": "ugc_appear", "report_id": "U10" }] },
+      { "id": "n220", "t_sim": 220, "label": "推进回合：无新事件", "events": [] },
+      { "id": "n250", "t_sim": 250, "label": "推进回合：无新事件", "events": [] },
+      { "id": "n300", "t_sim": 300, "label": "末回合：开放整批排序，结束核对关键项", "events": [] }
+    ],
+    "standard_actions": [
+      { "action_id": "A1", "target_id": "N7", "label": "上报核查 萃园 7 幢（北 7）" },
+      { "action_id": "A2", "target_id": "N7", "label": "派队 萃园 7 幢（北 7）" },
+      { "action_id": "A3", "target_id": "N7", "label": "警戒 萃园 7 幢（北 7）周边" },
+      { "action_id": "A4", "target_id": "N7", "label": "广播疏散 萃园 7 幢（北 7）" },
+      { "action_id": "A5", "target_id": "R-N7E", "label": "封路 R-N7E（北 7 东侧至 3 号门）" },
+      { "action_id": "A6", "target_id": "N7", "label": "断电 萃园 7 幢（北 7）" }
+    ],
+    "critical_items": [
+      { "action_id": "A2", "target_id": "N7", "label": "派队 萃园 7 幢（北 7）" },
+      { "action_id": "A3", "target_id": "N7", "label": "警戒 萃园 7 幢（北 7）周边" },
+      { "action_id": "A4", "target_id": "N7", "label": "广播疏散 萃园 7 幢（北 7）" }
+    ],
+    "resources": [
+      { "id": "inspection_team", "name": "核查组", "capacity": 1, "unit": "组" },
+      { "id": "rescue_team", "name": "救援队", "capacity": 1, "unit": "队" },
+      { "id": "barrier_team", "name": "警戒组", "capacity": 1, "unit": "组" },
+      { "id": "broadcast_system", "name": "广播系统", "capacity": 1, "unit": "套" },
+      { "id": "traffic_team", "name": "交通管制组", "capacity": 1, "unit": "组" },
+      { "id": "electrician", "name": "电工组", "capacity": 1, "unit": "组" }
+    ],
+    "playback_speeds": [1, 4]
+  },
+  "buildings": [
+    {
+      "id": "N7",
+      "name": "萃园 7 幢（北 7）",
+      "zone": "萃园·北区",
+      "category": "dormitory",
+      "floors": 5,
+      "capacity": 500,
+      "risk_tag": "夜间人员密集、用电",
+      "polygon": [{ "x": 220, "y": 460 }, { "x": 380, "y": 460 }, { "x": 380, "y": 580 }, { "x": 220, "y": 580 }],
+      "adjacency": ["N1"]
+    },
+    {
+      "id": "N1",
+      "name": "萃园 1 幢（北 1）",
+      "zone": "萃园·北区",
+      "category": "dormitory",
+      "floors": 5,
+      "capacity": 500,
+      "risk_tag": "夜间人员密集、用电",
+      "polygon": [{ "x": 60, "y": 420 }, { "x": 180, "y": 420 }, { "x": 180, "y": 540 }, { "x": 60, "y": 540 }],
+      "adjacency": ["N7", "N2"]
+    },
+    {
+      "id": "N2",
+      "name": "萃园 2 幢（北 2）",
+      "zone": "萃园·北区",
+      "category": "dormitory",
+      "floors": 5,
+      "capacity": 500,
+      "risk_tag": "夜间人员密集、用电",
+      "polygon": [{ "x": 60, "y": 280 }, { "x": 180, "y": 280 }, { "x": 180, "y": 380 }, { "x": 60, "y": 380 }],
+      "adjacency": ["N1", "CN1"]
+    },
+    {
+      "id": "N11",
+      "name": "萃园 11 幢（北 11）",
+      "zone": "萃园·北区",
+      "category": "dormitory",
+      "floors": 5,
+      "capacity": 400,
+      "risk_tag": "夜间人员密集",
+      "polygon": [{ "x": 380, "y": 60 }, { "x": 500, "y": 60 }, { "x": 500, "y": 180 }, { "x": 380, "y": 180 }],
+      "adjacency": ["CN2"]
+    },
+    {
+      "id": "CN1",
+      "name": "萃园一食堂（北一）",
+      "zone": "萃园·北区",
+      "category": "canteen",
+      "floors": 3,
+      "capacity": 800,
+      "risk_tag": "燃气、就餐高峰人流",
+      "polygon": [{ "x": 220, "y": 260 }, { "x": 360, "y": 260 }, { "x": 360, "y": 380 }, { "x": 220, "y": 380 }],
+      "adjacency": ["N2", "CN2", "GYM"]
+    },
+    {
+      "id": "CN2",
+      "name": "萃园二食堂（北二）",
+      "zone": "萃园·北区",
+      "category": "canteen",
+      "floors": 3,
+      "capacity": 800,
+      "risk_tag": "燃气",
+      "polygon": [{ "x": 430, "y": 260 }, { "x": 570, "y": 260 }, { "x": 570, "y": 380 }, { "x": 430, "y": 380 }],
+      "adjacency": ["CN1", "N11"]
+    },
+    {
+      "id": "GYM",
+      "name": "天健苑·体育中心",
+      "zone": "天健苑·西部",
+      "category": "gymnasium",
+      "floors": null,
+      "capacity": 3000,
+      "risk_tag": "散场人流对冲、通讯中断",
+      "polygon": [{ "x": 700, "y": 240 }, { "x": 880, "y": 240 }, { "x": 880, "y": 380 }, { "x": 700, "y": 380 }],
+      "adjacency": ["CN1", "LIB"]
+    },
+    {
+      "id": "LIB",
+      "name": "文博苑·逸夫图书信息中心",
+      "zone": "文博苑·中部",
+      "category": "library",
+      "floors": 5,
+      "capacity": 2500,
+      "risk_tag": "密集藏书、用电",
+      "polygon": [{ "x": 700, "y": 440 }, { "x": 900, "y": 440 }, { "x": 900, "y": 580 }, { "x": 700, "y": 580 }],
+      "adjacency": ["GYM"]
+    }
+  ],
+  "junctions": [
+    { "id": "GATE3", "name": "3 号门（近北区）", "kind": "gate" }
+  ],
+  "road_segments": [
+    {
+      "id": "R-N7E",
+      "name": "北 7 东侧至 3 号门",
+      "from": "N7",
+      "to": "GATE3",
+      "geometry": [{ "x": 380, "y": 520 }, { "x": 500, "y": 520 }],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-N7-N1",
+      "name": "萃园 7 幢至 1 幢",
+      "from": "N7",
+      "to": "N1",
+      "geometry": [{ "x": 220, "y": 500 }, { "x": 180, "y": 500 }],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-N1-N2",
+      "name": "萃园 1 幢至 2 幢",
+      "from": "N1",
+      "to": "N2",
+      "geometry": [{ "x": 120, "y": 420 }, { "x": 120, "y": 380 }],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-N2-CN1",
+      "name": "萃园 2 幢至北一食堂",
+      "from": "N2",
+      "to": "CN1",
+      "geometry": [{ "x": 180, "y": 330 }, { "x": 220, "y": 330 }],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-CN1-CN2",
+      "name": "北一食堂至北二食堂",
+      "from": "CN1",
+      "to": "CN2",
+      "geometry": [{ "x": 360, "y": 330 }, { "x": 430, "y": 330 }],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-N11-CN2",
+      "name": "北 11 至北二食堂",
+      "from": "N11",
+      "to": "CN2",
+      "geometry": [{ "x": 440, "y": 180 }, { "x": 440, "y": 260 }],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-CN1-GYM",
+      "name": "北区至体育中心（训练级简化）",
+      "from": "CN1",
+      "to": "GYM",
+      "geometry": [{ "x": 360, "y": 300 }, { "x": 390, "y": 210 }, { "x": 650, "y": 210 }, { "x": 700, "y": 300 }],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-GYM-LIB",
+      "name": "体育中心至图书馆",
+      "from": "GYM",
+      "to": "LIB",
+      "geometry": [{ "x": 790, "y": 380 }, { "x": 790, "y": 440 }],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    }
+  ],
+  "action_catalog": [
+    {
+      "id": "A1",
+      "name": "上报核查",
+      "target_kind": "building",
+      "critical": false,
+      "weight": 1,
+      "duration_sim": 45,
+      "resource_id": "inspection_team",
+      "resource_units": 1,
+      "preconditions": []
+    },
+    {
+      "id": "A2",
+      "name": "派队",
+      "target_kind": "building",
+      "critical": true,
+      "weight": 3,
+      "duration_sim": 60,
+      "resource_id": "rescue_team",
+      "resource_units": 1,
+      "preconditions": []
+    },
+    {
+      "id": "A3",
+      "name": "警戒",
+      "target_kind": "building",
+      "critical": true,
+      "weight": 2,
+      "duration_sim": 30,
+      "resource_id": "barrier_team",
+      "resource_units": 1,
+      "preconditions": []
+    },
+    {
+      "id": "A4",
+      "name": "广播疏散",
+      "target_kind": "building",
+      "critical": true,
+      "weight": 2,
+      "duration_sim": 20,
+      "resource_id": "broadcast_system",
+      "resource_units": 1,
+      "preconditions": [
+        { "type": "requires_completed_action", "action_id": "A3", "description": "同楼栋 A3 警戒必须先完成" }
+      ]
+    },
+    {
+      "id": "A5",
+      "name": "封路",
+      "target_kind": "road",
+      "critical": false,
+      "weight": 1,
+      "duration_sim": 25,
+      "resource_id": "traffic_team",
+      "resource_units": 1,
+      "preconditions": []
+    },
+    {
+      "id": "A6",
+      "name": "断电",
+      "target_kind": "building",
+      "critical": false,
+      "weight": 1,
+      "duration_sim": 35,
+      "resource_id": "electrician",
+      "resource_units": 1,
+      "preconditions": [
+        { "type": "requires_disaster_annotation", "description": "对象楼栋必须已有灾情标注" },
+        { "type": "not_powered_off", "description": "同一楼栋不可重复断电" }
+      ]
+    }
+  ],
+  "ugc_reports": [
+    {
+      "id": "U1",
+      "category": "true_report",
+      "appears_at_sim": 30,
+      "text": "北 7 好像有烟，不确定是不是有人烧东西",
+      "event_truth": { "is_real": true, "locatable": true, "building_id": "N7" },
+      "judgment_windows": [
+        { "from_sim": 30, "to_sim": 90, "expected": "待核", "reason": "仅闻到烟味，尚无明火或核实结论" },
+        { "from_sim": 90, "to_sim": null, "expected": "真报", "reason": "导调已核实北 7 三层真实火情" }
+      ],
+      "priority": 4,
+      "is_training": 1
+    },
+    {
+      "id": "U2",
+      "category": "true_report",
+      "appears_at_sim": 60,
+      "text": "北 7 三楼窗口看到明火，浓烟很大",
+      "event_truth": { "is_real": true, "locatable": true, "building_id": "N7" },
+      "judgment_windows": [
+        { "from_sim": 60, "to_sim": null, "expected": "真报", "reason": "明火与浓烟同时被目击，证据充分" }
+      ],
+      "priority": 1,
+      "is_training": 1
+    },
+    {
+      "id": "U3",
+      "category": "false_report",
+      "appears_at_sim": 45,
+      "text": "是不是又在搞消防演习啊",
+      "event_truth": { "is_real": false, "locatable": false, "building_id": null },
+      "judgment_windows": [
+        { "from_sim": 45, "to_sim": null, "expected": "误报", "reason": "无具体位置与灾情细节，属于演习联想" }
+      ],
+      "priority": 8,
+      "is_training": 1
+    },
+    {
+      "id": "U4",
+      "category": "emotional",
+      "appears_at_sim": 70,
+      "text": "救命啊我们楼好可怕我要死了",
+      "event_truth": { "is_real": true, "locatable": false, "building_id": null },
+      "judgment_windows": [
+        { "from_sim": 70, "to_sim": null, "expected": "待核", "reason": "情绪化描述且无法定位，需先核实" }
+      ],
+      "priority": 3,
+      "is_training": 1
+    },
+    {
+      "id": "U5",
+      "category": "vague_location",
+      "appears_at_sim": 80,
+      "text": "3 号门那边有烟（实为 N7）",
+      "event_truth": { "is_real": true, "locatable": false, "building_id": null },
+      "judgment_windows": [
+        { "from_sim": 80, "to_sim": null, "expected": "待核", "reason": "指向校门方向，不能直接定位到具体楼栋" }
+      ],
+      "priority": 6,
+      "is_training": 1
+    },
+    {
+      "id": "U6",
+      "category": "duplicate",
+      "appears_at_sim": 100,
+      "text": "北 7 着火了！（重复 U2）",
+      "event_truth": { "is_real": true, "locatable": true, "building_id": "N7" },
+      "judgment_windows": [
+        { "from_sim": 100, "to_sim": null, "expected": "真报", "reason": "与 U2 内容重复，但事实成立" }
+      ],
+      "priority": 7,
+      "is_training": 1
+    },
+    {
+      "id": "U7",
+      "category": "false_report",
+      "appears_at_sim": 110,
+      "text": "食堂好像也冒烟了",
+      "event_truth": { "is_real": false, "locatable": false, "building_id": null },
+      "judgment_windows": [
+        { "from_sim": 110, "to_sim": null, "expected": "误报", "reason": "北区有 CN1、CN2 两座食堂且未指明，表述为猜测" }
+      ],
+      "priority": 9,
+      "is_training": 1
+    },
+    {
+      "id": "U8",
+      "category": "true_report",
+      "appears_at_sim": 130,
+      "text": "宿管确认北 7 三层起火",
+      "event_truth": { "is_real": true, "locatable": true, "building_id": "N7" },
+      "judgment_windows": [
+        { "from_sim": 130, "to_sim": null, "expected": "真报", "reason": "宿管现场确认" }
+      ],
+      "priority": 2,
+      "is_training": 1
+    },
+    {
+      "id": "U9",
+      "category": "true_report",
+      "appears_at_sim": 140,
+      "text": "北 7 东侧路面积水很深，车过不去",
+      "event_truth": { "is_real": true, "locatable": true, "building_id": "N7" },
+      "judgment_windows": [
+        { "from_sim": 140, "to_sim": null, "expected": "真报", "reason": "位置参考楼栋为 N7；阻断对象 R-N7E 由同回合灾情事件引用" }
+      ],
+      "priority": 5,
+      "is_training": 1
+    },
+    {
+      "id": "U10",
+      "category": "false_report",
+      "appears_at_sim": 150,
+      "text": "听说整个学校都停电了",
+      "event_truth": { "is_real": false, "locatable": false, "building_id": null },
+      "judgment_windows": [
+        { "from_sim": 150, "to_sim": null, "expected": "误报", "reason": "仅传闻且明显夸大" }
+      ],
+      "priority": 10,
+      "is_training": 1
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "run-jia-1x",
+      "scenario_id": "SC-NIGHT-DORM-01",
+      "branch": "甲",
+      "playback_speed": 1,
+      "events": [
+        {
+          "seq": 1,
+          "t_sim": 30,
+          "kind": "action",
+          "payload": {
+            "seq": 1,
+            "attempt": 1,
+            "action_id": "A1",
+            "target_id": "N7",
+            "submitted_at_sim": 30,
+            "duration_sim": 45,
+            "completed_at_sim": 75,
+            "status": "accepted",
+            "reject_reason_code": null,
+            "reject_reason": null,
+            "resource_usage": { "resource_id": "inspection_team", "units": 1, "action_seq": 1, "from_sim": 30, "to_sim": 75 }
+          }
+        },
+        { "seq": 2, "t_sim": 30, "kind": "verdict", "payload": { "seq": 2, "report_id": "U1", "judged_at_sim": 30, "verdict": "待核", "location": "N7", "supersedes_seq": null } },
+        { "seq": 3, "t_sim": 45, "kind": "verdict", "payload": { "seq": 3, "report_id": "U3", "judged_at_sim": 45, "verdict": "误报", "location": "无法定位", "supersedes_seq": null } },
+        { "seq": 4, "t_sim": 60, "kind": "verdict", "payload": { "seq": 4, "report_id": "U2", "judged_at_sim": 60, "verdict": "真报", "location": "N7", "supersedes_seq": null } },
+        { "seq": 5, "t_sim": 70, "kind": "verdict", "payload": { "seq": 5, "report_id": "U4", "judged_at_sim": 70, "verdict": "待核", "location": "无法定位", "supersedes_seq": null } },
+        { "seq": 6, "t_sim": 80, "kind": "verdict", "payload": { "seq": 6, "report_id": "U5", "judged_at_sim": 80, "verdict": "真报", "location": "无法定位", "supersedes_seq": null } },
+        { "seq": 7, "t_sim": 100, "kind": "verdict", "payload": { "seq": 7, "report_id": "U1", "judged_at_sim": 100, "verdict": "真报", "location": "N7", "supersedes_seq": 2 } },
+        { "seq": 8, "t_sim": 100, "kind": "verdict", "payload": { "seq": 8, "report_id": "U6", "judged_at_sim": 100, "verdict": "真报", "location": "N7", "supersedes_seq": null } },
+        {
+          "seq": 9,
+          "t_sim": 100,
+          "kind": "action",
+          "payload": {
+            "seq": 9,
+            "attempt": 1,
+            "action_id": "A2",
+            "target_id": "N7",
+            "submitted_at_sim": 100,
+            "duration_sim": 60,
+            "completed_at_sim": 160,
+            "status": "accepted",
+            "reject_reason_code": null,
+            "reject_reason": null,
+            "resource_usage": { "resource_id": "rescue_team", "units": 1, "action_seq": 9, "from_sim": 100, "to_sim": 160 }
+          }
+        },
+        {
+          "seq": 10,
+          "t_sim": 100,
+          "kind": "action",
+          "payload": {
+            "seq": 10,
+            "attempt": 1,
+            "action_id": "A3",
+            "target_id": "N7",
+            "submitted_at_sim": 100,
+            "duration_sim": 30,
+            "completed_at_sim": 130,
+            "status": "accepted",
+            "reject_reason_code": null,
+            "reject_reason": null,
+            "resource_usage": { "resource_id": "barrier_team", "units": 1, "action_seq": 10, "from_sim": 100, "to_sim": 130 }
+          }
+        },
+        { "seq": 11, "t_sim": 110, "kind": "verdict", "payload": { "seq": 11, "report_id": "U7", "judged_at_sim": 110, "verdict": "误报", "location": "无法定位", "supersedes_seq": null } },
+        {
+          "seq": 12,
+          "t_sim": 110,
+          "kind": "action",
+          "payload": {
+            "seq": 12,
+            "attempt": 1,
+            "action_id": "A6",
+            "target_id": "N7",
+            "submitted_at_sim": 110,
+            "duration_sim": 35,
+            "completed_at_sim": 145,
+            "status": "accepted",
+            "reject_reason_code": null,
+            "reject_reason": null,
+            "resource_usage": { "resource_id": "electrician", "units": 1, "action_seq": 12, "from_sim": 110, "to_sim": 145 }
+          }
+        },
+        {
+          "seq": 13,
+          "t_sim": 110,
+          "kind": "action",
+          "payload": {
+            "seq": 13,
+            "attempt": 1,
+            "action_id": "A6",
+            "target_id": "CN1",
+            "submitted_at_sim": 110,
+            "duration_sim": 35,
+            "completed_at_sim": null,
+            "status": "rejected",
+            "reject_reason_code": "TARGET_NOT_APPLICABLE",
+            "reject_reason": "北一食堂 CN1 在提交时刻没有灾情标注，A6 断电不适用",
+            "resource_usage": null
+          }
+        },
+        {
+          "seq": 14,
+          "t_sim": 110,
+          "kind": "action",
+          "payload": {
+            "seq": 14,
+            "attempt": 2,
+            "action_id": "A6",
+            "target_id": "CN1",
+            "submitted_at_sim": 110,
+            "duration_sim": 35,
+            "completed_at_sim": null,
+            "status": "rejected",
+            "reject_reason_code": "TARGET_NOT_APPLICABLE",
+            "reject_reason": "CN1 仍无灾情标注；首次被拒后再次提交，计违规",
+            "resource_usage": null
+          }
+        },
+        { "seq": 15, "t_sim": 130, "kind": "verdict", "payload": { "seq": 15, "report_id": "U8", "judged_at_sim": 130, "verdict": "真报", "location": "N7", "supersedes_seq": null } },
+        { "seq": 16, "t_sim": 140, "kind": "verdict", "payload": { "seq": 16, "report_id": "U9", "judged_at_sim": 140, "verdict": "真报", "location": "N7", "supersedes_seq": null } },
+        {
+          "seq": 17,
+          "t_sim": 140,
+          "kind": "action",
+          "payload": {
+            "seq": 17,
+            "attempt": 1,
+            "action_id": "A5",
+            "target_id": "R-N7E",
+            "submitted_at_sim": 140,
+            "duration_sim": 25,
+            "completed_at_sim": 165,
+            "status": "accepted",
+            "reject_reason_code": null,
+            "reject_reason": null,
+            "resource_usage": { "resource_id": "traffic_team", "units": 1, "action_seq": 17, "from_sim": 140, "to_sim": 165 }
+          }
+        },
+        { "seq": 18, "t_sim": 150, "kind": "verdict", "payload": { "seq": 18, "report_id": "U10", "judged_at_sim": 150, "verdict": "待核", "location": "无法定位", "supersedes_seq": null } },
+        {
+          "seq": 19,
+          "t_sim": 150,
+          "kind": "action",
+          "payload": {
+            "seq": 19,
+            "attempt": 2,
+            "action_id": "A6",
+            "target_id": "N7",
+            "submitted_at_sim": 150,
+            "duration_sim": 35,
+            "completed_at_sim": null,
+            "status": "rejected",
+            "reject_reason_code": "STATUS_CONFLICT",
+            "reject_reason": "N7 已于模拟 145 秒完成断电，A6 不可重复执行",
+            "resource_usage": null
+          }
+        },
+        {
+          "seq": 20,
+          "t_sim": 150,
+          "kind": "action",
+          "payload": {
+            "seq": 20,
+            "attempt": 3,
+            "action_id": "A6",
+            "target_id": "N7",
+            "submitted_at_sim": 150,
+            "duration_sim": 35,
+            "completed_at_sim": null,
+            "status": "rejected",
+            "reject_reason_code": "STATUS_CONFLICT",
+            "reject_reason": "N7 已断电；首次被拒后再次提交，计违规",
+            "resource_usage": null
+          }
+        },
+        { "seq": 21, "t_sim": 300, "kind": "sort", "payload": { "seq": 21, "t_sim": 300, "ordered_report_ids": ["U2", "U8", "U4"] } }
+      ],
+      "resource_occupancy": [
+        { "resource_id": "inspection_team", "units": 1, "action_seq": 1, "from_sim": 30, "to_sim": 75 },
+        { "resource_id": "rescue_team", "units": 1, "action_seq": 9, "from_sim": 100, "to_sim": 160 },
+        { "resource_id": "barrier_team", "units": 1, "action_seq": 10, "from_sim": 100, "to_sim": 130 },
+        { "resource_id": "electrician", "units": 1, "action_seq": 12, "from_sim": 110, "to_sim": 145 },
+        { "resource_id": "traffic_team", "units": 1, "action_seq": 17, "from_sim": 140, "to_sim": 165 }
+      ]
+    },
+    {
+      "run_id": "run-yi-1x",
+      "scenario_id": "SC-NIGHT-DORM-01",
+      "branch": "乙",
+      "playback_speed": 1,
+      "events": [
+        { "seq": 1, "t_sim": 30, "kind": "verdict", "payload": { "seq": 1, "report_id": "U1", "judged_at_sim": 30, "verdict": "误报", "location": "无法定位", "supersedes_seq": null } },
+        { "seq": 2, "t_sim": 45, "kind": "verdict", "payload": { "seq": 2, "report_id": "U3", "judged_at_sim": 45, "verdict": "误报", "location": "无法定位", "supersedes_seq": null } },
+        { "seq": 3, "t_sim": 60, "kind": "verdict", "payload": { "seq": 3, "report_id": "U2", "judged_at_sim": 60, "verdict": "真报", "location": "N7", "supersedes_seq": null } },
+        { "seq": 4, "t_sim": 70, "kind": "verdict", "payload": { "seq": 4, "report_id": "U4", "judged_at_sim": 70, "verdict": "真报", "location": "无法定位", "supersedes_seq": null } },
+        { "seq": 5, "t_sim": 80, "kind": "verdict", "payload": { "seq": 5, "report_id": "U5", "judged_at_sim": 80, "verdict": "真报", "location": "无法定位", "supersedes_seq": null } },
+        { "seq": 6, "t_sim": 100, "kind": "verdict", "payload": { "seq": 6, "report_id": "U6", "judged_at_sim": 100, "verdict": "真报", "location": "N7", "supersedes_seq": null } },
+        { "seq": 7, "t_sim": 110, "kind": "verdict", "payload": { "seq": 7, "report_id": "U7", "judged_at_sim": 110, "verdict": "误报", "location": "无法定位", "supersedes_seq": null } },
+        {
+          "seq": 8,
+          "t_sim": 110,
+          "kind": "action",
+          "payload": {
+            "seq": 8,
+            "attempt": 1,
+            "action_id": "A6",
+            "target_id": "CN1",
+            "submitted_at_sim": 110,
+            "duration_sim": 35,
+            "completed_at_sim": null,
+            "status": "rejected",
+            "reject_reason_code": "TARGET_NOT_APPLICABLE",
+            "reject_reason": "北一食堂 CN1 在提交时刻没有灾情标注，A6 断电不适用",
+            "resource_usage": null
+          }
+        },
+        {
+          "seq": 9,
+          "t_sim": 110,
+          "kind": "action",
+          "payload": {
+            "seq": 9,
+            "attempt": 2,
+            "action_id": "A6",
+            "target_id": "CN1",
+            "submitted_at_sim": 110,
+            "duration_sim": 35,
+            "completed_at_sim": null,
+            "status": "rejected",
+            "reject_reason_code": "TARGET_NOT_APPLICABLE",
+            "reject_reason": "CN1 仍无灾情标注；首次被拒后再次提交，计违规",
+            "resource_usage": null
+          }
+        },
+        { "seq": 10, "t_sim": 130, "kind": "verdict", "payload": { "seq": 10, "report_id": "U8", "judged_at_sim": 130, "verdict": "真报", "location": "N7", "supersedes_seq": null } },
+        { "seq": 11, "t_sim": 140, "kind": "verdict", "payload": { "seq": 11, "report_id": "U9", "judged_at_sim": 140, "verdict": "真报", "location": "N7", "supersedes_seq": null } },
+        { "seq": 12, "t_sim": 150, "kind": "verdict", "payload": { "seq": 12, "report_id": "U10", "judged_at_sim": 150, "verdict": "待核", "location": "无法定位", "supersedes_seq": null } },
+        {
+          "seq": 13,
+          "t_sim": 150,
+          "kind": "action",
+          "payload": {
+            "seq": 13,
+            "attempt": 1,
+            "action_id": "A4",
+            "target_id": "N7",
+            "submitted_at_sim": 150,
+            "duration_sim": 20,
+            "completed_at_sim": null,
+            "status": "rejected",
+            "reject_reason_code": "PRECONDITION_NOT_MET",
+            "reject_reason": "同楼栋 A3 警戒尚未完成，A4 广播疏散不可执行",
+            "resource_usage": null
+          }
+        },
+        {
+          "seq": 14,
+          "t_sim": 150,
+          "kind": "action",
+          "payload": {
+            "seq": 14,
+            "attempt": 2,
+            "action_id": "A4",
+            "target_id": "N7",
+            "submitted_at_sim": 150,
+            "duration_sim": 20,
+            "completed_at_sim": null,
+            "status": "rejected",
+            "reject_reason_code": "PRECONDITION_NOT_MET",
+            "reject_reason": "A3 仍未完成；首次被拒后再次提交，计违规",
+            "resource_usage": null
+          }
+        },
+        {
+          "seq": 15,
+          "t_sim": 150,
+          "kind": "action",
+          "payload": {
+            "seq": 15,
+            "attempt": 3,
+            "action_id": "A4",
+            "target_id": "N7",
+            "submitted_at_sim": 150,
+            "duration_sim": 20,
+            "completed_at_sim": null,
+            "status": "rejected",
+            "reject_reason_code": "PRECONDITION_NOT_MET",
+            "reject_reason": "A3 仍未完成；再次提交，计违规",
+            "resource_usage": null
+          }
+        },
+        {
+          "seq": 16,
+          "t_sim": 220,
+          "kind": "action",
+          "payload": {
+            "seq": 16,
+            "attempt": 1,
+            "action_id": "A2",
+            "target_id": "N7",
+            "submitted_at_sim": 220,
+            "duration_sim": 60,
+            "completed_at_sim": 280,
+            "status": "accepted",
+            "reject_reason_code": null,
+            "reject_reason": null,
+            "resource_usage": { "resource_id": "rescue_team", "units": 1, "action_seq": 16, "from_sim": 220, "to_sim": 280 }
+          }
+        },
+        {
+          "seq": 17,
+          "t_sim": 250,
+          "kind": "action",
+          "payload": {
+            "seq": 17,
+            "attempt": 1,
+            "action_id": "A3",
+            "target_id": "N7",
+            "submitted_at_sim": 250,
+            "duration_sim": 30,
+            "completed_at_sim": 280,
+            "status": "accepted",
+            "reject_reason_code": null,
+            "reject_reason": null,
+            "resource_usage": { "resource_id": "barrier_team", "units": 1, "action_seq": 17, "from_sim": 250, "to_sim": 280 }
+          }
+        },
+        { "seq": 18, "t_sim": 300, "kind": "sort", "payload": { "seq": 18, "t_sim": 300, "ordered_report_ids": ["U2", "U8", "U4"] } }
+      ],
+      "resource_occupancy": [
+        { "resource_id": "rescue_team", "units": 1, "action_seq": 16, "from_sim": 220, "to_sim": 280 },
+        { "resource_id": "barrier_team", "units": 1, "action_seq": 17, "from_sim": 250, "to_sim": 280 }
+      ]
+    },
+    {
+      "run_id": "run-jia-plus-a4",
+      "scenario_id": "SC-NIGHT-DORM-01",
+      "branch": "甲补做A4",
+      "playback_speed": 1,
+      "events": [
+        {
+          "seq": 1,
+          "t_sim": 30,
+          "kind": "action",
+          "payload": {
+            "seq": 1,
+            "attempt": 1,
+            "action_id": "A1",
+            "target_id": "N7",
+            "submitted_at_sim": 30,
+            "duration_sim": 45,
+            "completed_at_sim": 75,
+            "status": "accepted",
+            "reject_reason_code": null,
+            "reject_reason": null,
+            "resource_usage": { "resource_id": "inspection_team", "units": 1, "action_seq": 1, "from_sim": 30, "to_sim": 75 }
+          }
+        },
+        { "seq": 2, "t_sim": 30, "kind": "verdict", "payload": { "seq": 2, "report_id": "U1", "judged_at_sim": 30, "verdict": "待核", "location": "N7", "supersedes_seq": null } },
+        { "seq": 3, "t_sim": 45, "kind": "verdict", "payload": { "seq": 3, "report_id": "U3", "judged_at_sim": 45, "verdict": "误报", "location": "无法定位", "supersedes_seq": null } },
+        { "seq": 4, "t_sim": 60, "kind": "verdict", "payload": { "seq": 4, "report_id": "U2", "judged_at_sim": 60, "verdict": "真报", "location": "N7", "supersedes_seq": null } },
+        { "seq": 5, "t_sim": 70, "kind": "verdict", "payload": { "seq": 5, "report_id": "U4", "judged_at_sim": 70, "verdict": "待核", "location": "无法定位", "supersedes_seq": null } },
+        { "seq": 6, "t_sim": 80, "kind": "verdict", "payload": { "seq": 6, "report_id": "U5", "judged_at_sim": 80, "verdict": "真报", "location": "无法定位", "supersedes_seq": null } },
+        { "seq": 7, "t_sim": 100, "kind": "verdict", "payload": { "seq": 7, "report_id": "U1", "judged_at_sim": 100, "verdict": "真报", "location": "N7", "supersedes_seq": 2 } },
+        { "seq": 8, "t_sim": 100, "kind": "verdict", "payload": { "seq": 8, "report_id": "U6", "judged_at_sim": 100, "verdict": "真报", "location": "N7", "supersedes_seq": null } },
+        {
+          "seq": 9,
+          "t_sim": 100,
+          "kind": "action",
+          "payload": {
+            "seq": 9,
+            "attempt": 1,
+            "action_id": "A2",
+            "target_id": "N7",
+            "submitted_at_sim": 100,
+            "duration_sim": 60,
+            "completed_at_sim": 160,
+            "status": "accepted",
+            "reject_reason_code": null,
+            "reject_reason": null,
+            "resource_usage": { "resource_id": "rescue_team", "units": 1, "action_seq": 9, "from_sim": 100, "to_sim": 160 }
+          }
+        },
+        {
+          "seq": 10,
+          "t_sim": 100,
+          "kind": "action",
+          "payload": {
+            "seq": 10,
+            "attempt": 1,
+            "action_id": "A3",
+            "target_id": "N7",
+            "submitted_at_sim": 100,
+            "duration_sim": 30,
+            "completed_at_sim": 130,
+            "status": "accepted",
+            "reject_reason_code": null,
+            "reject_reason": null,
+            "resource_usage": { "resource_id": "barrier_team", "units": 1, "action_seq": 10, "from_sim": 100, "to_sim": 130 }
+          }
+        },
+        { "seq": 11, "t_sim": 110, "kind": "verdict", "payload": { "seq": 11, "report_id": "U7", "judged_at_sim": 110, "verdict": "误报", "location": "无法定位", "supersedes_seq": null } },
+        {
+          "seq": 12,
+          "t_sim": 110,
+          "kind": "action",
+          "payload": {
+            "seq": 12,
+            "attempt": 1,
+            "action_id": "A6",
+            "target_id": "N7",
+            "submitted_at_sim": 110,
+            "duration_sim": 35,
+            "completed_at_sim": 145,
+            "status": "accepted",
+            "reject_reason_code": null,
+            "reject_reason": null,
+            "resource_usage": { "resource_id": "electrician", "units": 1, "action_seq": 12, "from_sim": 110, "to_sim": 145 }
+          }
+        },
+        {
+          "seq": 13,
+          "t_sim": 110,
+          "kind": "action",
+          "payload": {
+            "seq": 13,
+            "attempt": 1,
+            "action_id": "A6",
+            "target_id": "CN1",
+            "submitted_at_sim": 110,
+            "duration_sim": 35,
+            "completed_at_sim": null,
+            "status": "rejected",
+            "reject_reason_code": "TARGET_NOT_APPLICABLE",
+            "reject_reason": "北一食堂 CN1 在提交时刻没有灾情标注，A6 断电不适用",
+            "resource_usage": null
+          }
+        },
+        {
+          "seq": 14,
+          "t_sim": 110,
+          "kind": "action",
+          "payload": {
+            "seq": 14,
+            "attempt": 2,
+            "action_id": "A6",
+            "target_id": "CN1",
+            "submitted_at_sim": 110,
+            "duration_sim": 35,
+            "completed_at_sim": null,
+            "status": "rejected",
+            "reject_reason_code": "TARGET_NOT_APPLICABLE",
+            "reject_reason": "CN1 仍无灾情标注；首次被拒后再次提交，计违规",
+            "resource_usage": null
+          }
+        },
+        { "seq": 15, "t_sim": 130, "kind": "verdict", "payload": { "seq": 15, "report_id": "U8", "judged_at_sim": 130, "verdict": "真报", "location": "N7", "supersedes_seq": null } },
+        { "seq": 16, "t_sim": 140, "kind": "verdict", "payload": { "seq": 16, "report_id": "U9", "judged_at_sim": 140, "verdict": "真报", "location": "N7", "supersedes_seq": null } },
+        {
+          "seq": 17,
+          "t_sim": 140,
+          "kind": "action",
+          "payload": {
+            "seq": 17,
+            "attempt": 1,
+            "action_id": "A5",
+            "target_id": "R-N7E",
+            "submitted_at_sim": 140,
+            "duration_sim": 25,
+            "completed_at_sim": 165,
+            "status": "accepted",
+            "reject_reason_code": null,
+            "reject_reason": null,
+            "resource_usage": { "resource_id": "traffic_team", "units": 1, "action_seq": 17, "from_sim": 140, "to_sim": 165 }
+          }
+        },
+        { "seq": 18, "t_sim": 150, "kind": "verdict", "payload": { "seq": 18, "report_id": "U10", "judged_at_sim": 150, "verdict": "待核", "location": "无法定位", "supersedes_seq": null } },
+        {
+          "seq": 19,
+          "t_sim": 150,
+          "kind": "action",
+          "payload": {
+            "seq": 19,
+            "attempt": 1,
+            "action_id": "A4",
+            "target_id": "N7",
+            "submitted_at_sim": 150,
+            "duration_sim": 20,
+            "completed_at_sim": 170,
+            "status": "accepted",
+            "reject_reason_code": null,
+            "reject_reason": null,
+            "resource_usage": { "resource_id": "broadcast_system", "units": 1, "action_seq": 19, "from_sim": 150, "to_sim": 170 }
+          }
+        },
+        {
+          "seq": 20,
+          "t_sim": 150,
+          "kind": "action",
+          "payload": {
+            "seq": 20,
+            "attempt": 2,
+            "action_id": "A6",
+            "target_id": "N7",
+            "submitted_at_sim": 150,
+            "duration_sim": 35,
+            "completed_at_sim": null,
+            "status": "rejected",
+            "reject_reason_code": "STATUS_CONFLICT",
+            "reject_reason": "N7 已于模拟 145 秒完成断电，A6 不可重复执行",
+            "resource_usage": null
+          }
+        },
+        {
+          "seq": 21,
+          "t_sim": 150,
+          "kind": "action",
+          "payload": {
+            "seq": 21,
+            "attempt": 3,
+            "action_id": "A6",
+            "target_id": "N7",
+            "submitted_at_sim": 150,
+            "duration_sim": 35,
+            "completed_at_sim": null,
+            "status": "rejected",
+            "reject_reason_code": "STATUS_CONFLICT",
+            "reject_reason": "N7 已断电；首次被拒后再次提交，计违规",
+            "resource_usage": null
+          }
+        },
+        { "seq": 22, "t_sim": 300, "kind": "sort", "payload": { "seq": 22, "t_sim": 300, "ordered_report_ids": ["U2", "U8", "U4"] } }
+      ],
+      "resource_occupancy": [
+        { "resource_id": "inspection_team", "units": 1, "action_seq": 1, "from_sim": 30, "to_sim": 75 },
+        { "resource_id": "rescue_team", "units": 1, "action_seq": 9, "from_sim": 100, "to_sim": 160 },
+        { "resource_id": "barrier_team", "units": 1, "action_seq": 10, "from_sim": 100, "to_sim": 130 },
+        { "resource_id": "electrician", "units": 1, "action_seq": 12, "from_sim": 110, "to_sim": 145 },
+        { "resource_id": "traffic_team", "units": 1, "action_seq": 17, "from_sim": 140, "to_sim": 165 },
+        { "resource_id": "broadcast_system", "units": 1, "action_seq": 19, "from_sim": 150, "to_sim": 170 }
+      ]
+    }
+  ],
+  "clock_checks": [
+    { "label": "甲分支 1× 播放", "run_id": "run-jia-1x", "playback_speed": 1, "expected_response_seconds": 45 },
+    { "label": "甲分支 4× 播放（模拟时刻不变）", "run_id": "run-jia-1x", "playback_speed": 4, "expected_response_seconds": 45 }
+  ],
+  "expected_sort": ["U2", "U8", "U4"],
+  "expected_scores": {
+    "run-jia-1x": {
+      "discrimination": 80,
+      "response": 100,
+      "coverage": 80,
+      "violation": 70,
+      "total": 83,
+      "details": {
+        "correct_judgments": 8,
+        "total_reports": 10,
+        "wrong_report_ids": ["U5", "U10"],
+        "first_real_report_id": "U1",
+        "first_response_action_seq": 1,
+        "response_seconds": 45,
+        "coverage_hit_weights": 8,
+        "coverage_total_weights": 10,
+        "missed_items": [
+          { "action_id": "A4", "target_id": "N7", "label": "广播疏散 萃园 7 幢（北 7）" }
+        ],
+        "violation_count": 2,
+        "violation_event_seqs": [14, 20]
+      },
+      "sorting": {
+        "expected": ["U2", "U8", "U4"],
+        "actual": ["U2", "U8", "U4"],
+        "correct": true
+      }
+    },
+    "run-yi-1x": {
+      "discrimination": 60,
+      "response": 0,
+      "coverage": 50,
+      "violation": 55,
+      "total": 44,
+      "details": {
+        "correct_judgments": 6,
+        "total_reports": 10,
+        "wrong_report_ids": ["U1", "U4", "U5", "U10"],
+        "first_real_report_id": "U1",
+        "first_response_action_seq": 16,
+        "response_seconds": 250,
+        "coverage_hit_weights": 5,
+        "coverage_total_weights": 10,
+        "missed_items": [
+          { "action_id": "A1", "target_id": "N7", "label": "上报核查 萃园 7 幢（北 7）" },
+          { "action_id": "A4", "target_id": "N7", "label": "广播疏散 萃园 7 幢（北 7）" },
+          { "action_id": "A5", "target_id": "R-N7E", "label": "封路 R-N7E（北 7 东侧至 3 号门）" },
+          { "action_id": "A6", "target_id": "N7", "label": "断电 萃园 7 幢（北 7）" }
+        ],
+        "violation_count": 3,
+        "violation_event_seqs": [9, 14, 15]
+      },
+      "sorting": {
+        "expected": ["U2", "U8", "U4"],
+        "actual": ["U2", "U8", "U4"],
+        "correct": true
+      }
+    },
+    "run-jia-plus-a4": {
+      "discrimination": 80,
+      "response": 100,
+      "coverage": 100,
+      "violation": 70,
+      "total": 90,
+      "details": {
+        "correct_judgments": 8,
+        "total_reports": 10,
+        "wrong_report_ids": ["U5", "U10"],
+        "first_real_report_id": "U1",
+        "first_response_action_seq": 1,
+        "response_seconds": 45,
+        "coverage_hit_weights": 10,
+        "coverage_total_weights": 10,
+        "missed_items": [],
+        "violation_count": 2,
+        "violation_event_seqs": [14, 21]
+      },
+      "sorting": {
+        "expected": ["U2", "U8", "U4"],
+        "actual": ["U2", "U8", "U4"],
+        "correct": true
+      }
+    }
+  }
+}
