@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { MapView, RoadStatus } from '../fixture-port';
+import type { ActionDef, ActionId } from '../contracts';
 import { CATEGORY_STYLE, HAZARD_LABEL } from '../config/categories';
 import { cordonText, rescueText, type MapOverlay, type Selection } from '../config/layers';
 import { endpointName } from '../config/route-query';
@@ -10,12 +11,32 @@ const props = defineProps<{
   map: MapView;
   roads: readonly RoadStatus[];
   overlay: MapOverlay;
+  /** 推演页传入动作目录时显示临时提交入口；示例回放不传，保持只读。 */
+  actions?: readonly ActionDef[];
 }>();
 
 const emit = defineEmits<{
   (e: 'jump', tSim: number): void;
   (e: 'endpoint', id: string, role: 'from' | 'to'): void;
+  (e: 'action', actionId: ActionId, targetId: string): void;
 }>();
+
+const actionChoice = ref<ActionId | ''>('');
+watch(
+  () => props.selection,
+  () => {
+    actionChoice.value = '';
+  },
+);
+const actionChoices = computed<readonly ActionDef[]>(() => {
+  if (!props.actions || !props.selection || props.selection.kind === 'junction') return [];
+  const kind = props.selection.kind === 'road' ? 'road' : 'building';
+  return props.actions.filter((action) => action.target_kind === kind);
+});
+function emitAction(): void {
+  if (actionChoice.value === '' || !props.selection) return;
+  emit('action', actionChoice.value, props.selection.id);
+}
 
 const building = computed(() =>
   props.selection?.kind === 'building' ? props.map.buildings.find((b) => b.id === props.selection?.id) ?? null : null,
@@ -137,6 +158,23 @@ const buildingMarks = computed(() => {
         <button class="btn" @click="emit('endpoint', junction.id, 'to')">设为路径终点</button>
       </div>
     </template>
+
+    <!-- 推演页临时提交入口：对象按 target_kind 匹配动作（A5→路段，其余→楼栋；路口无动作） -->
+    <template v-if="actionChoices.length > 0">
+      <div class="detail-actions">
+        <label class="control action-control">
+          <span class="control-label">动作</span>
+          <select v-model="actionChoice" aria-label="选择处置动作">
+            <option value="" disabled>请选择</option>
+            <option v-for="a in actionChoices" :key="a.id" :value="a.id">
+              {{ a.id }} {{ a.name }} · {{ a.duration_sim }}s
+            </option>
+          </select>
+        </label>
+        <button class="btn" :disabled="actionChoice === ''" @click="emitAction">提交动作（临时）</button>
+      </div>
+      <p class="note">提交时刻 = 当前回合节点 t_sim（FR-4.7）；合法性由 A 规则引擎判定，未接入时记「待引擎接入」，不预设通过或拒绝。</p>
+    </template>
   </div>
 </template>
 
@@ -156,4 +194,6 @@ const buildingMarks = computed(() => {
 .c-green { color: var(--green); }
 .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .detail-actions .btn { min-height: 44px; padding: 6px 12px; font-size: 12.5px; }
+.action-control { flex: 1 1 180px; min-width: 0; min-height: 44px; }
+.action-control select { flex: 1; min-width: 0; }
 </style>

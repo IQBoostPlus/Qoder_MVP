@@ -374,9 +374,11 @@ table.data td.wrap { min-width: 180px; }
 
 .th-blue { color: var(--blue) !important; }
 .th-red { color: var(--red) !important; }
+.th-amber { color: var(--amber) !important; }
 
 .cell-blue { background: var(--cell-blue); }
 .cell-red { background: var(--cell-red); }
+.cell-amber { background: var(--amber-soft); }
 
 /* ---------- 控件 ---------- */
 
@@ -918,6 +920,83 @@ table.data tbody tr:focus-visible { outline: 2px solid var(--amber); outline-off
 }
 .diag-map .campus-svg { width: 100%; height: 100%; }
 
+/* ---------- D3 推演页：回合控制 / 账本 / 上报投放（复用 token，无新视觉体系） ---------- */
+.round-now { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.round-now-t { font-size: 20px; font-weight: 700; color: var(--amber); font-variant-numeric: tabular-nums; }
+.round-now-label { font-size: 12.5px; color: var(--paper); }
+
+.round-progress { display: flex; flex-wrap: wrap; gap: 6px; }
+.round-tick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 4px 6px;
+  font-family: var(--font-sans);
+  background: var(--ink-900);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.round-tick:hover { border-color: var(--line); color: var(--paper); }
+.round-tick .tick-t { font-size: 12px; font-weight: 700; }
+.round-tick .tick-kind { font-size: 9.5px; letter-spacing: 0.04em; }
+.round-tick.current { border-color: var(--amber); background: var(--amber-soft); color: var(--amber); }
+.round-tick.advance { border-style: dashed; }
+.round-tick.final { border-color: var(--edge-blue); color: var(--blue); }
+.round-tick.final.current { border-color: var(--amber); color: var(--amber); }
+
+.round-controls .btn { min-height: 44px; }
+.round-controls .control { min-height: 44px; }
+.round-stats { margin: 0; font-size: 11.5px; color: var(--muted); }
+
+.drill-notice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.drill-notice .control { flex: 1 1 180px; min-width: 0; min-height: 44px; }
+.drill-notice select { flex: 1; min-width: 0; }
+
+.sort-gate { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line-soft); padding-top: 10px; }
+.sort-gate .btn { min-height: 44px; }
+
+/* 账本在窄信息轨内：取消对象列最小宽，给状态列可读宽度，避免逐字竖排 */
+#ledger-table td.wrap { min-width: 0; }
+#ledger-table td:last-child { min-width: 88px; white-space: normal; }
+
+.batch-banner {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--amber);
+  background: var(--amber-soft);
+  border: 1px solid var(--edge-amber);
+  border-radius: var(--r-sm);
+}
+
+.report-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.report-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-md);
+  background: var(--ink-950);
+}
+.report-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.report-id { font-size: 12.5px; font-weight: 700; color: var(--paper); }
+.report-at { font-size: 11px; color: var(--muted); }
+.report-text { margin: 0; font-size: 13px; line-height: 1.55; color: var(--paper); }
+.report-verdict { margin: 0; font-size: 12px; font-weight: 600; color: var(--amber); }
+.verdict-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.verdict-controls .control { flex: 1 1 130px; min-width: 0; min-height: 44px; }
+.verdict-controls select { flex: 1; min-width: 0; }
+.verdict-controls .btn { min-height: 44px; }
+
 /* 响应式：平板单列轨在右变下？保持双列到 1100，以下单列 + 底部舱 */
 @media (max-width: 1100px) {
   .mapwrap { grid-template-columns: minmax(0, 1fr) 340px; }
@@ -934,10 +1013,12 @@ table.data tbody tr:focus-visible { outline: 2px solid var(--amber); outline-off
   .rail { height: auto; overflow: visible; padding-right: 2px; }
   .seg { display: flex; position: sticky; top: 0; z-index: 5; background: var(--ink-950); padding: 4px 0; }
   .rail-sec { display: none; }
-  /* 详情与态势常驻，不参与舱切换（Q3：点选后必须立即可读） */
-  .rail .sec-detail, .rail .sec-situation { display: flex; }
+  /* 详情与态势常驻，不参与舱切换（Q3：点选后必须立即可读）；推演页回合控制同样常驻 */
+  .rail .sec-detail, .rail .sec-situation, .rail .sec-roundctl { display: flex; }
   .rail[data-active='legend'] .sec-legend,
   .rail[data-active='time'] .sec-time,
+  .rail[data-active='round'] .sec-round,
+  .rail[data-active='reports'] .sec-reports,
   .rail[data-active='roads'] .sec-roads,
   .rail[data-active='route'] .sec-route,
   .rail[data-active='score'] .sec-score { display: flex; }
@@ -963,4 +1044,7 @@ table.data tbody tr:focus-visible { outline: 2px solid var(--amber); outline-off
   .seg button { flex: 1 1 30%; }
   .layer-toggle { flex: 1 1 30%; justify-content: center; padding: 6px 8px; }
   .layer-clear { margin-left: 0; flex: 1 1 100%; }
+  .round-tick { flex: 1 1 12%; min-width: 44px; }
+  .verdict-controls .control { flex: 1 1 100%; }
+  .verdict-controls .btn { flex: 1 1 100%; }
 }

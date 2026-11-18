@@ -11,15 +11,15 @@
 | 编号 | 要求 | 验收方式 | 状态 |
 | --- | --- | --- | --- |
 | Q1 | Qoder Sites 公网部署、访问策略 public，无本地文件或压缩包依赖 | 无痕窗口 + 手机访问 | 待验 |
-| Q2 | 桌面 + 移动**控制台 0 报错** | DevTools + 真机，D7 起每轮回归 | 待验 |
-| Q3 | 375px 宽下地图与信息流均可操作（上下分栏，非左右挤压） | iPhone SE / 375 模拟器实测 | D2 实测通过（§7；D3 信息流加入后复测） |
+| Q2 | 桌面 + 移动**控制台 0 报错** | DevTools + 真机，D7 起每轮回归 | D3 桌面 + 375 模拟器实测 0 error（§7）；真机与 D7 每轮回归待验 |
+| Q3 | 375px 宽下地图与信息流均可操作（上下分栏，非左右挤压） | iPhone SE / 375 模拟器实测 | D2/D3 实测通过（§7；D3 推演舱 scrollWidth=375 无横滚、触控 ≥44） |
 | Q4 | LLM 永不成为单点：Schema 约束 → 预算内重试 → 兜底剧本三级降级 | 手动断掉 Agent 调用仍能完成整轮 | 待验 |
 | Q5 | 每轮模型调用 **≤4 次**，**请求发出即计数**；「重新生成点评」受预算与原请求状态双重约束 | 计数器打印 + 构造预算耗尽场景 | 待验 |
 | Q6 | **分数随临场动作变化**，非预录流水 | 同一剧本补做一个动作，总分按规则改变 | 待验 |
-| Q7 | 训练定位三处可见：首屏声明 + 逐条上报徽标 + 页面水印 | 任意截图可自证 | 待验 |
+| Q7 | 训练定位三处可见：首屏声明 + 逐条上报徽标 + 页面水印 | 任意截图可自证 | D3 实测：首屏声明 + 逐条上报「训练模拟数据」徽标同屏（§7）；页面水印待走查 |
 | Q8 | 数据表结构 D2 结束前冻结，之后只加不改 | 变更需 A、B 共同确认 | 待验 |
 | Q9 | **Qoder 使用证据链**：每步留存于 `docs/qoder-evidence/` | 索引清单逐项核对 | 待验 |
-| Q10 | 只能播放预录结果的入口**必须标注「示例回放」** | 走查所有演示入口 | 待验 |
+| Q10 | 只能播放预录结果的入口**必须标注「示例回放」** | 走查所有演示入口 | D3 实测通过（§7；推演「fixture 推演」/ 示例回放 / 诊断「构造/合成数据」三入口徽标区分） |
 
 ## 2. 待测目标
 
@@ -29,7 +29,7 @@
 | T2 | 首屏 < 3 秒 | Lighthouse + 秒表 | 待填 |
 | T3 | 剧本生成 < 15 秒，等待有进度提示 | 秒表，重复 3 次取最差 | 待填 |
 | T4 | 复盘分数即时呈现，不受 AI 文案延迟影响 | 断网/慢网下结束推演，观察分数是否立即出现 | 待填 |
-| T5 | 键盘可操作动作按钮，颜色变化附文字，对比度 WCAG AA | 键盘走查 + 对比度工具 | D2 实测通过（§7.3 双主题 AA；新增组件复测） |
+| T5 | 键盘可操作动作按钮，颜色变化附文字，对比度 WCAG AA | 键盘走查 + 对比度工具 | D2/D3 实测通过（§7 双主题 AA；D3 时间轴/账本/上报卡新增组件复测全过） |
 
 ### T1 测量协议（v4 修正）
 
@@ -200,5 +200,16 @@ v3 用「20～25 次点击」推算 3 分钟可达，**该推算不作为验收�
 | 2026-11-18 | RE-07 渲染侧：封路标记挂路段不挂楼栋 | 通过（浏览器）：t=165 R-N7E 详情「封闭·seq17」+「积水@140」双态分离，N7 定位标签互不干扰；t=164 仅积水 | 同上 d2-desktop-road-dualstate-165.png、d2-desktop-t164-hazard-only.png | — |
 | 2026-11-18 | 路径三分支渲染 + RouteQuery 传参（blocked/hazard 分离） | 通过（浏览器，**构造输入验证渲染，非寻路结果**）：ready casing+虚线 637.8px / unreachable 常量文案 / null ROUTE_PENDING_TEXT；面板 05 传参分列核对 | 同上 d2-diag-constructed-ready.png、d2-diag-constructed-unreachable.png | **RE-06 真实改道待 A getRoute 交付**；GATE3 degree=1 改道存在性需 A 确认 |
 | 2026-11-18 | CD-04：20 栋零改动渲染 | 通过（**程序化合成数据构造验证，不是真实数据验收**）：20 栋 + 3 路口 + 29 路段经 buildMapView 正常渲染与点选，viewBox "48 56 892 634" | 同上 d2-diag-cd04-20.png | 真实 20 栋 fixture 待 A 交付后复验 |
+| 2026-11-18 | D3 TC-01/02/03：1×/4× 只压缩真实等待，模拟时钟与得分不变 | 通过（浏览器，诊断台 #panel-timing）：两速响应均 45s、账本逐条相同；真实等待 +500ms 评分恒 null→SCORE_PENDING_TEXT；4× 2 回合/2303ms vs 1× 0/2302ms | [`D3-2026-11-18-drill-rounds-playback.md`](qoder-evidence/D3-2026-11-18-drill-rounds-playback.md) §3.2 #10～12、d3-diag-timing-assertions.png | 倍速不改 t_sim/duration_sim、不复制流水 |
+| 2026-11-18 | D3 TC-04：在途→延迟完成（骨架基线，标注） | 通过（浏览器）：t=30 账本「预计完成@75」在途、t=80「预计完成时刻已到@75」，submitted_at_sim 恒 30；骨架基线「在途→已完成@75」徽标 fixture 骨架演示 | 同上 d3-tc04-ledger-t30-intransit.png、d3-tc04-ledger-t80-completed.png | 真实完成判定待 A 规则引擎 |
+| 2026-11-18 | D3 TC-06 / FR-4.7：回合内连续操作 stamp 恒等当前 t_sim | 通过（浏览器，诊断台）：t=100 内 5 次操作 stamps=[100×5]；FR-4.7 stamps⊆nodes | 同上 §3.2 #17/#20、d3-diag-timing-assertions.png | — |
+| 2026-11-18 | D3 TC-07：推进回合 t=220 可行动、不投放新上报 | 通过（浏览器，诊断台）：新增 0、已投放 10→10、stamp 220、advance 可提交动作 | 同上 §3.2 #25 | — |
+| 2026-11-18 | D3 VS-01/VS-04：可见性随回合回退 + 末回合全可见 | 通过（浏览器）：t=60 显 [U1,U3,U2]、回退 t=30 仅 U1（可见 1/10、横幅隐藏）；t=300 可见 10/10。**修掉原 filter(deliveredIds) 泄漏未来线索 bug** | 同上 d3-vs01-t60-reports.png | — |
+| 2026-11-18 | D3 VS-03：排序入口仅末回合开放（门控占位） | 通过（浏览器）：#sort-entry 非末回合 disabled、末回合开放 + 「完整交互属 D4」占位说明 | 同上 d3-round-last-sort-open.png | 排序完整交互与提交属 D4 |
+| 2026-11-18 | D3 RE-渲染侧：引擎确认拒绝的保留与渲染（**构造桩，非真实判定**） | 通过（浏览器，诊断台构造 rejectJudgeStub）：status=rejected · code=PRECONDITION_NOT_MET · attempt=1 · 渲染「已拒绝 · PRECONDITION_NOT_MET 需同楼 A3 已完成（构造桩）」，currentEvents 含 action | 同上 §3.2 #23、d3-diag-timing-assertions.png | **动作真实合法性/拒绝/资源/评分待 A**；ActionJudge 签名待协商 |
+| 2026-11-18 | D3 Q3：375px 推演舱复测（信息流加入后） | 通过（浏览器，同源 iframe 真实媒体查询）：scrollWidth=375 无横滚、上下分栏纵向滚动、按钮 88×44 / 倍速 58×44 / tick 48×44 / 排序 315×44、sec-roundctl 常驻可读 | 同上 d3-375-drill.png、d3-375-drill-roundctl.png | — |
+| 2026-11-18 | D3 T5：新增组件双主题 AA + 键盘焦点环 | 通过（浏览器，window.__ratio alpha 合成）：ops 25 项 5.79～16.93、daylight 25 项 5.01～14.04 全 ≥4.5；焦点环 ops 2px rgb(255,178,36) / daylight 2px rgb(122,84,0)；press_key Tab/Space 真实 :focus-visible | 同上 §3.3 两表 | — |
+| 2026-11-18 | D3 Q7/Q10：逐条上报徽标 + 三入口模式区分 | 通过（浏览器截图自证）：上报卡仅 id/appears_at/text + 训练模拟数据徽标（不泄漏 category/event_truth/priority/judgment_windows）；drill「fixture 推演」/ map「示例回放」/ diag「构造/合成数据」徽标区分；页脚 PRECISION_NOTICE 同屏 | 同上 d3-desktop-drill-panorama.png | 页面水印待走查 |
+| 2026-11-18 | D3 基线回归 + D2 示例回放无回归 | 通过（CLI + 浏览器）：check:d1-v2 EXIT=0（83/44/90 未动）、typecheck/typecheck:app/build 全过（47 modules）；A 冻结文件零改动、MapView 未改 | 同上 §3.1、d3-d2-regression-map.png | — |
 
 每条实测记录须按 [`docs/qoder-evidence/README.md`](qoder-evidence/README.md) 的约定留存凭证：想完成什么 / 在 Qoder 中做了什么 / 如何验证 + 对话与结果截图。纯 CLI 验证保存命令与完整输出作为等效凭证。

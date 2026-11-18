@@ -12,6 +12,7 @@ import {
 } from '../fixture-port';
 import type { Building, Junction, Point, RoadHazard, RoadSegment, RunEvent, Verdict } from '../contracts';
 import { useFixtureData, useFixturePort } from '../composables/useFixturePort';
+import { useDrillRound, pendingActionText, type ActionJudge } from '../composables/useDrillRound';
 import { CATEGORY_ORDER } from '../config/categories';
 import type { Selection } from '../config/layers';
 import { buildRouteQuery, endpointOptions, locationOptions, UNLOCATABLE } from '../config/route-query';
@@ -403,6 +404,209 @@ function resetAll(): void {
   routeTo.value = '';
   constructedMode.value = 'ready';
   synSelected.value = null;
+  drillProbe.resetDrill();
+  drillRejectProbe.resetDrill();
+  timingChecks.value = [];
+}
+
+// ---- 11 D3 时机不变量断言 ----
+// 断言中的时刻字面量（30/75/80/100/150/220/60）是测试断言值，来自 requirements §5.2 与
+// quality TC-01～07 / VS-01～04；实现代码（rounds / useDrillRound / DrillView）不写死时刻。
+const drillProbe = useDrillRound(fixture, port);
+
+// RE-01～05 渲染侧构造桩：模拟 A 引擎返回 rejected，验证 B 完整留痕并渲染拒绝原因。
+// 非临场引擎结果；真实合法性判定待 A 接入。顶层创建以复用组件卸载清理。
+const rejectJudgeStub: ActionJudge = (input) => ({
+  seq: 0,
+  attempt: 0,
+  action_id: input.action_id,
+  target_id: input.target_id,
+  submitted_at_sim: input.submitted_at_sim,
+  duration_sim: 20,
+  completed_at_sim: null,
+  status: 'rejected',
+  reject_reason_code: 'PRECONDITION_NOT_MET',
+  reject_reason: '需同楼 A3 已完成（构造桩）',
+  resource_usage: null,
+});
+const drillRejectProbe = useDrillRound(fixture, port, { judgeAction: rejectJudgeStub });
+
+interface TimingCheck {
+  id: string;
+  label: string;
+  pass: boolean;
+  measured: string;
+}
+const timingChecks = ref<TimingCheck[]>([]);
+const timingRunning = ref(false);
+const wait = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+async function runTimingChecks(): Promise<void> {
+  timingRunning.value = true;
+  const checks: TimingCheck[] = [];
+  const d = drillProbe;
+  const nodeTimes = d.rounds.map((round) => round.node.t_sim);
+  const indexOfT = (tSim: number): number => d.rounds.findIndex((round) => round.node.t_sim === tSim);
+  const start = fixture.scenario.start_building_id;
+  const baseRunId = runs[0]?.run_id ?? '';
+
+  // TC-06 + TC-03：t=100 回合内判读 3 条 + 提交 2 动作，操作间插入真实等待
+  d.resetDrill();
+  d.goToRound(indexOfT(100));
+  const scoreBefore = port.getScore(baseRunId, d.currentEvents.value);
+  const realBefore = d.realElapsedMs.value;
+  const stamps: number[] = [];
+  for (const reportId of ['U1', 'U2', 'U3']) {
+    const payload = d.submitVerdict(reportId, '待核', null);
+    if (payload) stamps.push(payload.judged_at_sim);
+    await wait(120);
+  }
+  for (const actionId of ['A1', 'A3'] as const) {
+    const entry = d.submitAction(actionId, start);
+    if (entry && entry.kind === 'action-pending') stamps.push(entry.submission.submitted_at_sim);
+    await wait(120);
+  }
+  const realDelta = d.realElapsedMs.value - realBefore;
+  const scoreAfter = port.getScore(baseRunId, d.currentEvents.value);
+  checks.push({
+    id: 'TC-06',
+    label: 't=100 回合内 5 次操作 stamp 全 = 100，不随真实点击递增',
+    pass: stamps.length === 5 && stamps.every((s) => s === 100),
+    measured: `stamps=[${stamps.join(', ')}]`,
+  });
+  checks.push({
+    id: 'TC-03',
+    label: '真实操作间隔拉长，模拟 stamp 与评分不变，仅真实用时变化',
+    pass: realDelta > 0 && stamps.every((s) => s === 100) && scoreBefore === null && scoreAfter === null,
+    measured: `真实用时 +${realDelta.toFixed(0)}ms · 评分前后均 null（待接入）`,
+  });
+
+  // TC-04：t=30 提交 A1（duration 读 ActionDef）→ 期望完成 75；推进 ≥75 显示变化，submitted 不变
+  d.resetDrill();
+  d.goToRound(indexOfT(30));
+  const entry30 = d.submitAction('A1', start);
+  const sub = entry30 && entry30.kind === 'action-pending' ? entry30.submission : null;
+  const textAt30 = sub ? pendingActionText(sub, d.currentT.value) : '缺失';
+  d.goToRound(indexOfT(80));
+  const textAt80 = sub ? pendingActionText(sub, d.currentT.value) : '缺失';
+  const sk30 = port.replayTo(baseRunId, { t_sim: 30 });
+  const baselineA1 = sk30?.actions.find((a) => a.action_id === 'A1' && a.submitted_at_sim === 30) ?? null;
+  const baselineText = (tSim: number): string => {
+    if (!baselineA1 || baselineA1.completed_at_sim === null) return '缺失';
+    return tSim >= baselineA1.completed_at_sim
+      ? `已完成 @${baselineA1.completed_at_sim}`
+      : `在途 · 预计 @${baselineA1.completed_at_sim}`;
+  };
+  checks.push({
+    id: 'TC-04',
+    label: 't=30 提交 A1 → 完成记 75；提交回合在途、≥75 回合显示完成，submitted 仍 30',
+    pass:
+      sub !== null &&
+      sub.expected_completed_at_sim === 75 &&
+      sub.submitted_at_sim === 30 &&
+      textAt30.includes('预计完成 @75') &&
+      textAt80.includes('预计完成时刻已到 @75') &&
+      baselineA1?.status === 'accepted' &&
+      baselineA1?.completed_at_sim === 75 &&
+      baselineText(30) === '在途 · 预计 @75' &&
+      baselineText(80) === '已完成 @75',
+    measured: `账本：${textAt30} → ${textAt80}（submitted 恒 ${sub?.submitted_at_sim ?? '—'}）；骨架基线：${baselineText(30)} → ${baselineText(80)}`,
+  });
+
+  // TC-07：推进回合 t=220 不投放新上报、已可见不变、可正常提交
+  d.resetDrill();
+  d.goToRound(indexOfT(150));
+  const deliveredBefore = d.deliveredIds.value.size;
+  d.goToRound(indexOfT(220));
+  const batch220 = d.lastBatch.value.length;
+  const deliveredAfter = d.deliveredIds.value.size;
+  const entry220 = d.submitAction('A2', start);
+  const stamp220 = entry220 && entry220.kind === 'action-pending' ? entry220.submission.submitted_at_sim : null;
+  const kind220 = d.rounds[indexOfT(220)]?.kind;
+  checks.push({
+    id: 'TC-07',
+    label: '推进回合 t=220 可提交动作，不投放新上报，已可见线索不变',
+    pass: batch220 === 0 && deliveredBefore === deliveredAfter && deliveredAfter === 10 && stamp220 === 220 && kind220 === 'advance',
+    measured: `新增 ${batch220} 条 · 已投放 ${deliveredBefore}→${deliveredAfter} · 提交 stamp=${stamp220 ?? '—'} · 回合类型=${kind220 ?? '—'}`,
+  });
+
+  // TC-01/02：1× 与 4× 响应同为 45 模拟秒；速度切换不改账本
+  const clockChecks = fixture.clock_checks;
+  const expectedSet = new Set(clockChecks.map((c) => c.expected_response_seconds));
+  const skEnd = port.replayTo(baseRunId, { t_sim: fixture.scenario.t_end });
+  const firstAccepted = skEnd?.actions.find((a) => a.status === 'accepted' && a.completed_at_sim !== null);
+  const firstReport = fixture.ugc_reports.reduce((min, r) => (r.appears_at_sim < min.appears_at_sim ? r : min));
+  const computedResponse =
+    firstAccepted && firstAccepted.completed_at_sim !== null
+      ? firstAccepted.completed_at_sim - firstReport.appears_at_sim
+      : null;
+  const eventsBeforeSpeed = JSON.stringify(d.currentEvents.value);
+  for (const s of d.speeds) d.speed.value = s;
+  const eventsAfterSpeed = JSON.stringify(d.currentEvents.value);
+  const expectedValue = [...expectedSet][0];
+  checks.push({
+    id: 'TC-01/02',
+    label: '甲 1× 与 4× 响应均 45 模拟秒；速度只记录，不复制流水',
+    pass:
+      expectedSet.size === 1 &&
+      expectedValue === 45 &&
+      computedResponse === expectedValue &&
+      clockChecks.length === d.speeds.length &&
+      eventsBeforeSpeed === eventsAfterSpeed,
+    measured: `clock_checks=[${clockChecks.map((c) => `${c.playback_speed}×:${c.expected_response_seconds}s`).join(', ')}] · 骨架推算 ${computedResponse ?? '—'}s · 变速前后账本一致=${eventsBeforeSpeed === eventsAfterSpeed}`,
+  });
+  d.speed.value = d.speeds[0] ?? 1;
+
+  // VS-01 / VS-04：t=60 仅 U1/U2/U3；t_end 十条全可见
+  const vis60 = port.visibleReportsAt(60).map((r) => r.id);
+  const vis60Set = new Set(vis60);
+  const visEnd = port.visibleReportsAt(fixture.scenario.t_end);
+  checks.push({
+    id: 'VS-01/04',
+    label: 't=60 只见 U1/U2/U3；末回合十条全可见',
+    pass: vis60.length === 3 && vis60Set.has('U1') && vis60Set.has('U2') && vis60Set.has('U3') && visEnd.length === 10,
+    measured: `t=60 [${vis60.join(', ')}] · t=${fixture.scenario.t_end} 共 ${visEnd.length} 条`,
+  });
+
+  // stamp 纯度：账本所有时刻 ∈ 节点集合
+  const allStamps = d.entries.value.map((entry) =>
+    entry.kind === 'action-pending' ? entry.submission.submitted_at_sim : entry.event.t_sim,
+  );
+  checks.push({
+    id: 'FR-4.7',
+    label: '账本全部操作时刻 ∈ scenario.nodes 节点集合',
+    pass: allStamps.every((s) => nodeTimes.includes(s)),
+    measured: `stamps=[${allStamps.join(', ')}] ⊆ nodes=[${nodeTimes.join(', ')}]`,
+  });
+
+  // RE-01～05 渲染侧（构造）：引擎桩返回 rejected，B 留痕 status/code/reason/attempt 并渲染拒绝原因。
+  drillRejectProbe.resetDrill();
+  const rejEntry = drillRejectProbe.submitAction('A4', fixture.scenario.start_building_id);
+  const rejPayload = rejEntry && rejEntry.kind === 'action-confirmed' ? rejEntry.event.payload : null;
+  const rejRendered = rejPayload
+    ? rejPayload.status === 'accepted'
+      ? `已通过 · 完成 @${rejPayload.completed_at_sim}`
+      : `已拒绝 · ${rejPayload.reject_reason_code ?? ''} ${rejPayload.reject_reason ?? ''}`
+    : '';
+  checks.push({
+    id: 'RE-渲染侧',
+    label: '构造引擎桩返回 rejected：B 留痕 status/code/reason/attempt，账本渲染拒绝原因（非临场引擎）',
+    pass:
+      rejPayload !== null &&
+      rejPayload.status === 'rejected' &&
+      rejPayload.reject_reason_code === 'PRECONDITION_NOT_MET' &&
+      rejPayload.attempt === 1 &&
+      rejRendered.includes('PRECONDITION_NOT_MET') &&
+      rejRendered.includes('需同楼 A3 已完成') &&
+      drillRejectProbe.currentEvents.value.some((e) => e.kind === 'action'),
+    measured: rejPayload
+      ? `status=${rejPayload.status} · code=${rejPayload.reject_reason_code} · attempt=${rejPayload.attempt} · 渲染「${rejRendered}」`
+      : '引擎桩无返回',
+  });
+  drillRejectProbe.resetDrill();
+
+  timingChecks.value = checks;
+  timingRunning.value = false;
 }
 </script>
 
@@ -1038,6 +1242,44 @@ function resetAll(): void {
           </span>
         </p>
         <p class="note">路口可点选查看连接路段，但不进上报定位候选、不可作为动作对象；路段永不进定位候选。</p>
+      </div>
+    </section>
+
+    <!-- 11 D3 时机不变量 -->
+    <section class="panel span-2" id="panel-timing">
+      <header class="panel-head">
+        <span class="panel-no">11</span>
+        <h2>D3 时机不变量断言</h2>
+        <span class="badge badge-amber badge-sm">测试断言 · 非临场引擎</span>
+        <span class="panel-sub">TC-01～07 · VS-01/04 · FR-4.7</span>
+      </header>
+      <div class="panel-body">
+        <div class="controls">
+          <button type="button" class="btn btn-primary" id="run-timing" :disabled="timingRunning" @click="runTimingChecks">
+            {{ timingRunning ? '断言运行中…' : '运行时机断言' }}
+          </button>
+          <span class="note">对独立回合状态机实例执行；动作合法性待 A 引擎，断言中动作状态为「待引擎接入」占位。</span>
+        </div>
+        <div v-if="timingChecks.length" class="table-wrap">
+          <table class="data" id="timing-table">
+            <thead>
+              <tr><th>用例</th><th>断言</th><th>结果</th><th>实测值</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="check in timingChecks" :key="check.id">
+                <td class="num">{{ check.id }}</td>
+                <td class="wrap">{{ check.label }}</td>
+                <td>
+                  <span class="badge badge-sm" :class="check.pass ? 'badge-green' : 'badge-red'">
+                    {{ check.pass ? '通过' : '失败' }}
+                  </span>
+                </td>
+                <td class="wrap mono">{{ check.measured }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-else class="note">尚未运行。断言时刻字面量来自 requirements §5.2 与 quality TC/VS 用例（测试断言值）；实现代码不写死节点时刻。</p>
       </div>
     </section>
   </div>
