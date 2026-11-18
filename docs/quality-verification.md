@@ -211,5 +211,6 @@ v3 用「20～25 次点击」推算 3 分钟可达，**该推算不作为验收�
 | 2026-11-18 | D3 T5：新增组件双主题 AA + 键盘焦点环 | 通过（浏览器，window.__ratio alpha 合成）：ops 25 项 5.79～16.93、daylight 25 项 5.01～14.04 全 ≥4.5；焦点环 ops 2px rgb(255,178,36) / daylight 2px rgb(122,84,0)；press_key Tab/Space 真实 :focus-visible | 同上 §3.3 两表 | — |
 | 2026-11-18 | D3 Q7/Q10：逐条上报徽标 + 三入口模式区分 | 通过（浏览器截图自证）：上报卡仅 id/appears_at/text + 训练模拟数据徽标（不泄漏 category/event_truth/priority/judgment_windows）；drill「fixture 推演」/ map「示例回放」/ diag「构造/合成数据」徽标区分；页脚 PRECISION_NOTICE 同屏 | 同上 d3-desktop-drill-panorama.png | 页面水印待走查 |
 | 2026-11-18 | D3 基线回归 + D2 示例回放无回归 | 通过（CLI + 浏览器）：check:d1-v2 EXIT=0（83/44/90 未动）、typecheck/typecheck:app/build 全过（47 modules）；A 冻结文件零改动、MapView 未改 | 同上 §3.1、d3-d2-regression-map.png | — |
+| 2026-11-18 | D3+ 地图 2.5D 精致化 + 视图交互（缩放/平移/hover/选中/图上圖例） | 通过（浏览器 + CLI）：真实点击路径点选/拖拽/双击复位/2.4× 缩放/hover 卡全验；375 scrollWidth=371、按钮 44×44；新增组件双主题 AA（ops 7.63～16.93 / daylight 5.01～13.30，zone 水印装饰豁免）；CD-04 20 栋零改动（viewBox 48 56 892 634）；示例回放标记无回归；控制台 0 error；check:d1-v2 仍全过 | [`D3-2026-11-18-map-25d-interaction-polish.md`](qoder-evidence/D3-2026-11-18-map-25d-interaction-polish.md) §3、d3-polish-*.png | 不改 A 冻结 footprint；真实非矩形轮廓与 20 栋选点待 A；高度仅层数视觉比例（CD-06） |
 
 每条实测记录须按 [`docs/qoder-evidence/README.md`](qoder-evidence/README.md) 的约定留存凭证：想完成什么 / 在 Qoder 中做了什么 / 如何验证 + 对话与结果截图。纯 CLI 验证保存命令与完整输出作为等效凭证。
