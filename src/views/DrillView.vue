@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { ActionId, LocationChoice, Verdict, VerdictAttempt } from '../contracts';
 import { useFixturePort, useFixtureData } from '../composables/useFixturePort';
 import { useDrillRound, pendingActionText } from '../composables/useDrillRound';
-import { CATEGORY_STYLE, HAZARD_LABEL } from '../config/categories';
+import { CATEGORY_STYLE, HAZARD_LABEL, formatBuildingFloors } from '../config/categories';
 import {
   LAYER_ORDER,
   LAYER_STYLE,
@@ -517,7 +517,7 @@ function resetDrill(): void {
         </div>
         <div v-if="degenerate" class="alert-error" id="drill-route-degenerate">起点与终点相同，已禁用查询；请另选终点。</div>
         <RoutePanel :route="route" :query="routeQuery" :map="map" :roads="roads" />
-        <p class="note">传参携带骨架路网 blocked / hazard 分离状态；寻路待 A，长度口径为图上 px。</p>
+        <p class="note">路径随标准样例的道路状态更新，长度为图上 px。</p>
       </section>
 
       <section class="rail-sec sec-legend">
@@ -554,7 +554,7 @@ function resetDrill(): void {
                     }}<template v-if="b.risk_tag !== null"> · <span class="risk">▲ {{ b.risk_tag }}</span></template>
                   </span>
                 </span>
-                <span class="bld-meta mono">{{ b.floors === null ? '通高' : `${b.floors} 层` }} · ≈{{ b.capacity }}</span>
+                <span class="bld-meta mono">{{ formatBuildingFloors(b) }} · ≈{{ b.capacity }}</span>
               </button>
             </li>
           </ul>

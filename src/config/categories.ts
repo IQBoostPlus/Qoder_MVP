@@ -1,4 +1,4 @@
-import type { BuildingCategory, RoadHazard } from '../contracts';
+import type { Building, BuildingCategory, RoadHazard } from '../contracts';
 
 export interface CategoryStyle {
   label: string;
@@ -29,6 +29,11 @@ export const CATEGORY_ORDER: BuildingCategory[] = [
   'office',
   'other',
 ];
+
+export function formatBuildingFloors({ floors, category }: Pick<Building, 'floors' | 'category'>): string {
+  if (floors !== null) return `${floors} 层`;
+  return category === 'gymnasium' ? '通高' : '未公开';
+}
 
 export const HAZARD_LABEL: Record<Exclude<RoadHazard, null>, string> = {
   flood: '积水',

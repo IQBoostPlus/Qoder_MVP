@@ -1,0 +1,20 @@
+PS> node scripts/validate-d2-db.mjs <临时验证依赖目录>
+PostgreSQL 18.6 (PGlite 0.5.16) on wasm32-unknown-emscripten, compiled by emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 6.0.13 (e13ee988ce3d87a738dd8f3661d02223308c412a), 32-bit
+app schema: 8 tables; all columns round-tripped for 20 buildings, 28 roads
+Fixture d2-1 resolves persisted gate references: GATE3=3 号门（近北区）, GATE4=4 号门（近东区）, GATES=南门（名义正门）
+Training and road hazard CHECK constraints passed
+D2 local PostgreSQL map round-trip PASSED
+
+Qoder D1 私有站根路径，无登录会话的只读复核
+HTTP/1.1 401 Unauthorized
+x-qoder-error: sites_gateway_login_required
+
+Edge：选择现有 Qoder 账户后，私有站要求授权验证账号身份及查看基本资料。
+
+2026-11-18 云端复验期间，按 Qoder Sites 受限方言修正迁移后，在本地重新运行。
+PS> node scripts/validate-d2-db.mjs <临时验证依赖目录>
+PostgreSQL 18.6 (PGlite 0.5.16) on wasm32-unknown-emscripten, compiled by emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 6.0.13 (e13ee988ce3d87a738dd8f3661d02223308c412a), 32-bit
+app schema: 8 tables; all columns round-tripped for 20 buildings, 28 roads
+Fixture d2-1 resolves persisted gate references: GATE3=3 号门（近北区）, GATE4=4 号门（近东区）, GATES=南门（名义正门）
+Primary key, required geometry and fractional JSONB values verified
+D2 local PostgreSQL map round-trip PASSED

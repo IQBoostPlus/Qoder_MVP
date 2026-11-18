@@ -5,7 +5,8 @@
 --
 -- 路网节点口径（v4.1）：Junction（校门/路口）是静态路网节点，不计入 20 栋。
 -- 为保持八表基线，本版不单列 junction 表；road_segments 端点保存楼栋或路口 id，
--- 由应用层按 fixtures/junctions 校验。D2 若需数据库级外键，再与 B 共同确认增量迁移。
+-- 由应用层按 fixtures/campus-map.json 的 junctions 校验。
+-- Sites PostgreSQL 候选迁移见 db/migrations/d2-campus-app.sql。
 
 PRAGMA foreign_keys = ON;
 

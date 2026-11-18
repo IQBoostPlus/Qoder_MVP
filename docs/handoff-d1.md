@@ -1,5 +1,7 @@
 # D1 → B 轨交接说明（v4.1 真实校区数据）
 
+本文记录 D1 八栋静态基线。当前应用入口、完整地图与寻路验收见 [D2 交接](handoff-d2.md)。
+
 日期：2026-11-17　状态：契约、基准数据与 D1-v2 只读接口校验通过；云端连通性见文末。
 
 B 通过 [`src/fixture-port.ts`](../src/fixture-port.ts) 获取地图派生、可见性、判断窗、只读回放与静态评分，不需要自己再写寻路、判分或违规统计。原始数据仍以 [`fixtures/canonical-run.json`](../fixtures/canonical-run.json)、[`fixtures/buildings.json`](../fixtures/buildings.json) 和 [`src/contracts.ts`](../src/contracts.ts) 为准；手算口径见 [`fixtures/canonical-run.md`](../fixtures/canonical-run.md)。

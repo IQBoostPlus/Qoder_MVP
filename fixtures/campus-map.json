@@ -1,0 +1,525 @@
+{
+  "schema_version": "d2-1",
+  "generated_at": "2026-11-18",
+  "buildings": [
+    {
+      "id": "N7",
+      "name": "萃园 7 幢（北 7）",
+      "zone": "萃园·北区",
+      "category": "dormitory",
+      "floors": 5,
+      "capacity": 500,
+      "risk_tag": "夜间人员密集、用电",
+      "polygon": [{"x": 220, "y": 460}, {"x": 380, "y": 460}, {"x": 380, "y": 580}, {"x": 220, "y": 580}],
+      "adjacency": ["N1", "SA"]
+    },
+    {
+      "id": "N1",
+      "name": "萃园 1 幢（北 1）",
+      "zone": "萃园·北区",
+      "category": "dormitory",
+      "floors": 5,
+      "capacity": 500,
+      "risk_tag": "夜间人员密集、用电",
+      "polygon": [{"x": 60, "y": 420}, {"x": 180, "y": 420}, {"x": 180, "y": 540}, {"x": 60, "y": 540}],
+      "adjacency": ["N2", "N7"]
+    },
+    {
+      "id": "N2",
+      "name": "萃园 2 幢（北 2）",
+      "zone": "萃园·北区",
+      "category": "dormitory",
+      "floors": 5,
+      "capacity": 500,
+      "risk_tag": "夜间人员密集、用电",
+      "polygon": [{"x": 60, "y": 280}, {"x": 180, "y": 280}, {"x": 180, "y": 380}, {"x": 60, "y": 380}],
+      "adjacency": ["CN1", "N1"]
+    },
+    {
+      "id": "N11",
+      "name": "萃园 11 幢（北 11）",
+      "zone": "萃园·北区",
+      "category": "dormitory",
+      "floors": 5,
+      "capacity": 400,
+      "risk_tag": "夜间人员密集",
+      "polygon": [{"x": 380, "y": 60}, {"x": 500, "y": 60}, {"x": 500, "y": 180}, {"x": 380, "y": 180}],
+      "adjacency": ["CN2", "SAC"]
+    },
+    {
+      "id": "E1",
+      "name": "润园 1 幢（东 1）",
+      "zone": "润园·东区",
+      "category": "dormitory",
+      "floors": 5,
+      "capacity": 500,
+      "risk_tag": "夜间人员密集",
+      "polygon": [{"x": 1140, "y": 270}, {"x": 1285, "y": 270}, {"x": 1285, "y": 370}, {"x": 1140, "y": 370}],
+      "adjacency": ["CE1", "E7"]
+    },
+    {
+      "id": "E7",
+      "name": "润园 7 幢（东 7）",
+      "zone": "润园·东区",
+      "category": "dormitory",
+      "floors": 5,
+      "capacity": 600,
+      "risk_tag": "男女分区混住、疏散组织复杂",
+      "polygon": [{"x": 1140, "y": 110}, {"x": 1285, "y": 110}, {"x": 1285, "y": 210}, {"x": 1140, "y": 210}],
+      "adjacency": ["E1"]
+    },
+    {
+      "id": "CN1",
+      "name": "萃园一食堂（北一）",
+      "zone": "萃园·北区",
+      "category": "canteen",
+      "floors": 3,
+      "capacity": 800,
+      "risk_tag": "燃气、就餐高峰人流",
+      "polygon": [{"x": 220, "y": 260}, {"x": 360, "y": 260}, {"x": 360, "y": 380}, {"x": 220, "y": 380}],
+      "adjacency": ["CN2", "GYM", "N2"]
+    },
+    {
+      "id": "CN2",
+      "name": "萃园二食堂（北二）",
+      "zone": "萃园·北区",
+      "category": "canteen",
+      "floors": 3,
+      "capacity": 800,
+      "risk_tag": "燃气",
+      "polygon": [{"x": 430, "y": 260}, {"x": 570, "y": 260}, {"x": 570, "y": 380}, {"x": 430, "y": 380}],
+      "adjacency": ["CN1", "N11", "SAC"]
+    },
+    {
+      "id": "CE1",
+      "name": "润园一食堂（东一）",
+      "zone": "润园·东区",
+      "category": "canteen",
+      "floors": 3,
+      "capacity": 800,
+      "risk_tag": "燃气、清真窗口",
+      "polygon": [{"x": 1140, "y": 435}, {"x": 1285, "y": 435}, {"x": 1285, "y": 555}, {"x": 1140, "y": 555}],
+      "adjacency": ["E1", "EA", "G8"]
+    },
+    {
+      "id": "GYM",
+      "name": "天健苑·体育中心",
+      "zone": "天健苑·西部",
+      "category": "gymnasium",
+      "floors": null,
+      "capacity": 3000,
+      "risk_tag": "散场人流对冲、通讯中断",
+      "polygon": [{"x": 700, "y": 240}, {"x": 880, "y": 240}, {"x": 880, "y": 380}, {"x": 700, "y": 380}],
+      "adjacency": ["CN1", "LIB", "SAC"]
+    },
+    {
+      "id": "SY",
+      "name": "基础实验楼",
+      "zone": "教学区",
+      "category": "laboratory",
+      "floors": 5,
+      "capacity": 600,
+      "risk_tag": "危化品、通风",
+      "polygon": [{"x": 680, "y": 640}, {"x": 835, "y": 640}, {"x": 835, "y": 750}, {"x": 680, "y": 750}],
+      "adjacency": ["ADM", "G3", "SA"]
+    },
+    {
+      "id": "G3",
+      "name": "工程实践中心 3 号楼",
+      "zone": "至行苑",
+      "category": "laboratory",
+      "floors": 5,
+      "capacity": 400,
+      "risk_tag": "大功率设备、用电",
+      "polygon": [{"x": 930, "y": 640}, {"x": 1085, "y": 640}, {"x": 1085, "y": 750}, {"x": 930, "y": 750}],
+      "adjacency": ["EA", "G8", "SY"]
+    },
+    {
+      "id": "G8",
+      "name": "工程实践中心 8 号楼",
+      "zone": "至行苑",
+      "category": "laboratory",
+      "floors": 5,
+      "capacity": 400,
+      "risk_tag": "大功率设备、用电",
+      "polygon": [{"x": 1155, "y": 640}, {"x": 1310, "y": 640}, {"x": 1310, "y": 750}, {"x": 1155, "y": 750}],
+      "adjacency": ["CE1", "CLI", "G3"]
+    },
+    {
+      "id": "LIB",
+      "name": "文博苑·逸夫图书信息中心",
+      "zone": "文博苑·中部",
+      "category": "library",
+      "floors": 5,
+      "capacity": 2500,
+      "risk_tag": "密集藏书、用电",
+      "polygon": [{"x": 700, "y": 440}, {"x": 900, "y": 440}, {"x": 900, "y": 580}, {"x": 700, "y": 580}],
+      "adjacency": ["EA", "GYM"]
+    },
+    {
+      "id": "ADM",
+      "name": "至勤楼·行政中心",
+      "zone": "南部",
+      "category": "office",
+      "floors": 5,
+      "capacity": 300,
+      "risk_tag": "变电（模拟设定）",
+      "polygon": [{"x": 560, "y": 815}, {"x": 720, "y": 815}, {"x": 720, "y": 905}, {"x": 560, "y": 905}],
+      "adjacency": ["CLI", "SY"]
+    },
+    {
+      "id": "SA",
+      "name": "南馆 A 座（顶部钟楼）",
+      "zone": "学海苑",
+      "category": "teaching",
+      "floors": 5,
+      "capacity": 1200,
+      "risk_tag": "地标钟楼、夜间照明",
+      "polygon": [{"x": 405, "y": 640}, {"x": 585, "y": 640}, {"x": 585, "y": 750}, {"x": 405, "y": 750}],
+      "adjacency": ["N7", "SY"]
+    },
+    {
+      "id": "EA",
+      "name": "东馆 A 座",
+      "zone": "学海苑",
+      "category": "teaching",
+      "floors": 4,
+      "capacity": 1200,
+      "risk_tag": "大人流公共课",
+      "polygon": [{"x": 920, "y": 410}, {"x": 1080, "y": 410}, {"x": 1080, "y": 525}, {"x": 920, "y": 525}],
+      "adjacency": ["CE1", "G3", "LIB", "WL"]
+    },
+    {
+      "id": "WL",
+      "name": "文理楼",
+      "zone": "至和苑·东区",
+      "category": "teaching",
+      "floors": 5,
+      "capacity": 800,
+      "risk_tag": "院系办公",
+      "polygon": [{"x": 925, "y": 240}, {"x": 1080, "y": 240}, {"x": 1080, "y": 355}, {"x": 925, "y": 355}],
+      "adjacency": ["EA"]
+    },
+    {
+      "id": "CLI",
+      "name": "门诊部",
+      "zone": "校内",
+      "category": "other",
+      "floors": null,
+      "capacity": 50,
+      "risk_tag": "氧气瓶、伤员接收点",
+      "polygon": [{"x": 925, "y": 815}, {"x": 1065, "y": 815}, {"x": 1065, "y": 905}, {"x": 925, "y": 905}],
+      "adjacency": ["ADM", "G8"]
+    },
+    {
+      "id": "SAC",
+      "name": "至馨苑·综合服务楼（北大活）",
+      "zone": "至馨苑·北区",
+      "category": "other",
+      "floors": 2,
+      "capacity": 600,
+      "risk_tag": "活动人流、临时集合点",
+      "polygon": [{"x": 540, "y": 85}, {"x": 705, "y": 85}, {"x": 705, "y": 190}, {"x": 540, "y": 190}],
+      "adjacency": ["CN2", "GYM", "N11"]
+    }
+  ],
+  "junctions": [
+    {
+      "id": "GATE3",
+      "name": "3 号门（近北区）",
+      "kind": "gate"
+    },
+    {
+      "id": "GATE4",
+      "name": "4 号门（近东区）",
+      "kind": "gate"
+    },
+    {
+      "id": "GATES",
+      "name": "南门（名义正门）",
+      "kind": "gate"
+    }
+  ],
+  "road_segments": [
+    {
+      "id": "R-N7E",
+      "name": "北 7 东侧至 3 号门",
+      "from": "N7",
+      "to": "GATE3",
+      "geometry": [{"x": 380, "y": 520}, {"x": 500, "y": 520}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-N7-N1",
+      "name": "萃园 7 幢至 1 幢",
+      "from": "N7",
+      "to": "N1",
+      "geometry": [{"x": 380, "y": 520}, {"x": 220, "y": 500}, {"x": 180, "y": 500}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-N1-N2",
+      "name": "萃园 1 幢至 2 幢",
+      "from": "N1",
+      "to": "N2",
+      "geometry": [{"x": 180, "y": 500}, {"x": 120, "y": 420}, {"x": 120, "y": 380}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-N2-CN1",
+      "name": "萃园 2 幢至北一食堂",
+      "from": "N2",
+      "to": "CN1",
+      "geometry": [{"x": 120, "y": 380}, {"x": 180, "y": 330}, {"x": 220, "y": 330}, {"x": 360, "y": 330}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-CN1-CN2",
+      "name": "北一食堂至北二食堂",
+      "from": "CN1",
+      "to": "CN2",
+      "geometry": [{"x": 360, "y": 330}, {"x": 430, "y": 330}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-N11-CN2",
+      "name": "北 11 至北二食堂",
+      "from": "N11",
+      "to": "CN2",
+      "geometry": [{"x": 440, "y": 180}, {"x": 440, "y": 260}, {"x": 430, "y": 330}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-CN1-GYM",
+      "name": "北区至体育中心（训练级简化）",
+      "from": "CN1",
+      "to": "GYM",
+      "geometry": [{"x": 360, "y": 330}, {"x": 360, "y": 300}, {"x": 390, "y": 210}, {"x": 650, "y": 210}, {"x": 700, "y": 300}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-GYM-LIB",
+      "name": "体育中心至图书馆",
+      "from": "GYM",
+      "to": "LIB",
+      "geometry": [{"x": 700, "y": 300}, {"x": 790, "y": 380}, {"x": 790, "y": 440}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-N1-GATE3",
+      "name": "北 1 至 3 号门（训练备用道路）",
+      "from": "N1",
+      "to": "GATE3",
+      "geometry": [{"x": 180, "y": 500}, {"x": 195, "y": 595}, {"x": 480, "y": 595}, {"x": 500, "y": 520}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-N11-SAC",
+      "name": "北 11 至北大活",
+      "from": "N11",
+      "to": "SAC",
+      "geometry": [{"x": 440, "y": 180}, {"x": 525, "y": 195}, {"x": 600, "y": 190}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-CN2-SAC",
+      "name": "北二食堂至北大活",
+      "from": "CN2",
+      "to": "SAC",
+      "geometry": [{"x": 430, "y": 330}, {"x": 395, "y": 330}, {"x": 395, "y": 225}, {"x": 600, "y": 225}, {"x": 600, "y": 190}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-SAC-GYM",
+      "name": "北大活至体育中心",
+      "from": "SAC",
+      "to": "GYM",
+      "geometry": [{"x": 600, "y": 190}, {"x": 670, "y": 195}, {"x": 670, "y": 285}, {"x": 700, "y": 300}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-N7-SA",
+      "name": "萃园至南馆",
+      "from": "N7",
+      "to": "SA",
+      "geometry": [{"x": 380, "y": 520}, {"x": 395, "y": 610}, {"x": 600, "y": 610}, {"x": 600, "y": 675}, {"x": 585, "y": 695}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-SA-SY",
+      "name": "南馆至基础实验楼",
+      "from": "SA",
+      "to": "SY",
+      "geometry": [{"x": 585, "y": 695}, {"x": 630, "y": 695}, {"x": 630, "y": 605}, {"x": 855, "y": 605}, {"x": 855, "y": 695}, {"x": 835, "y": 695}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-SY-G3",
+      "name": "基础实验楼至实训 3 号楼",
+      "from": "SY",
+      "to": "G3",
+      "geometry": [{"x": 835, "y": 695}, {"x": 930, "y": 695}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-G3-G8",
+      "name": "工程实践中心内部通道",
+      "from": "G3",
+      "to": "G8",
+      "geometry": [{"x": 930, "y": 695}, {"x": 907, "y": 767}, {"x": 1135, "y": 767}, {"x": 1155, "y": 695}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-SY-ADM",
+      "name": "基础实验楼至行政中心",
+      "from": "SY",
+      "to": "ADM",
+      "geometry": [{"x": 835, "y": 695}, {"x": 850, "y": 780}, {"x": 743, "y": 780}, {"x": 743, "y": 860}, {"x": 720, "y": 860}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-ADM-GATES",
+      "name": "行政中心至南门",
+      "from": "ADM",
+      "to": "GATES",
+      "geometry": [{"x": 720, "y": 860}, {"x": 720, "y": 930}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-ADM-CLI",
+      "name": "行政中心至门诊部",
+      "from": "ADM",
+      "to": "CLI",
+      "geometry": [{"x": 720, "y": 860}, {"x": 925, "y": 860}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-G8-CLI",
+      "name": "实训 8 号楼至门诊部",
+      "from": "G8",
+      "to": "CLI",
+      "geometry": [{"x": 1155, "y": 695}, {"x": 1125, "y": 785}, {"x": 895, "y": 785}, {"x": 895, "y": 860}, {"x": 925, "y": 860}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-LIB-EA",
+      "name": "图书馆至东馆",
+      "from": "LIB",
+      "to": "EA",
+      "geometry": [{"x": 790, "y": 440}, {"x": 908, "y": 395}, {"x": 907, "y": 545}, {"x": 1000, "y": 545}, {"x": 1000, "y": 525}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-WL-EA",
+      "name": "文理楼至东馆",
+      "from": "WL",
+      "to": "EA",
+      "geometry": [{"x": 1000, "y": 355}, {"x": 1105, "y": 387}, {"x": 1105, "y": 550}, {"x": 1000, "y": 525}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-EA-CE1",
+      "name": "东馆至东一食堂",
+      "from": "EA",
+      "to": "CE1",
+      "geometry": [{"x": 1000, "y": 525}, {"x": 1105, "y": 552}, {"x": 1120, "y": 495}, {"x": 1140, "y": 495}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-CE1-E1",
+      "name": "东一食堂至润园 1 幢",
+      "from": "CE1",
+      "to": "E1",
+      "geometry": [{"x": 1140, "y": 495}, {"x": 1120, "y": 400}, {"x": 1210, "y": 400}, {"x": 1210, "y": 370}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-E1-E7",
+      "name": "润园 1 幢至 7 幢",
+      "from": "E1",
+      "to": "E7",
+      "geometry": [{"x": 1210, "y": 370}, {"x": 1120, "y": 415}, {"x": 1120, "y": 240}, {"x": 1210, "y": 240}, {"x": 1210, "y": 210}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-CE1-GATE4",
+      "name": "东一食堂至 4 号门",
+      "from": "CE1",
+      "to": "GATE4",
+      "geometry": [{"x": 1140, "y": 495}, {"x": 1120, "y": 580}, {"x": 1350, "y": 580}, {"x": 1350, "y": 495}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-EA-G3",
+      "name": "东馆至工程实践中心",
+      "from": "EA",
+      "to": "G3",
+      "geometry": [{"x": 1000, "y": 525}, {"x": 1000, "y": 615}, {"x": 910, "y": 615}, {"x": 910, "y": 695}, {"x": 930, "y": 695}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    },
+    {
+      "id": "R-CE1-G8",
+      "name": "东区至工程实践中心",
+      "from": "CE1",
+      "to": "G8",
+      "geometry": [{"x": 1140, "y": 495}, {"x": 1120, "y": 595}, {"x": 1130, "y": 695}, {"x": 1155, "y": 695}],
+      "blocked": false,
+      "hazard": null,
+      "block_reason": null
+    }
+  ]
+}

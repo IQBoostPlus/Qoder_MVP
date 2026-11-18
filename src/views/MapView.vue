@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useFixturePort, useFixtureData } from '../composables/useFixturePort';
-import { CATEGORY_STYLE, HAZARD_LABEL } from '../config/categories';
+import { CATEGORY_STYLE, HAZARD_LABEL, formatBuildingFloors } from '../config/categories';
 import {
   LAYER_ORDER,
   LAYER_STYLE,
@@ -176,7 +176,6 @@ function resetSample(): void {
         <div class="hud hud-tr">
           <span class="hud-label">NETWORK</span>
           <span class="hud-line" id="building-count">{{ map.buildings.length }} 栋 · {{ map.road_segments.length }} 路段 · {{ map.junctions.length }} 路口</span>
-          <span class="hud-line dim">D1 子集 · D2 补至 20 栋零改动</span>
           <span class="hud-line dim">viewBox {{ map.view_box_svg }}</span>
         </div>
 
@@ -352,7 +351,7 @@ function resetSample(): void {
                     }}<template v-if="b.risk_tag !== null"> · <span class="risk">▲ {{ b.risk_tag }}</span></template>
                   </span>
                 </span>
-                <span class="bld-meta mono">{{ b.floors === null ? '通高' : `${b.floors} 层` }} · ≈{{ b.capacity }}</span>
+                <span class="bld-meta mono">{{ formatBuildingFloors(b) }} · ≈{{ b.capacity }}</span>
               </button>
             </li>
           </ul>

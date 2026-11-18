@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import type { MapView, RoadStatus } from '../fixture-port';
 import type { ActionDef, ActionId } from '../contracts';
-import { CATEGORY_STYLE, HAZARD_LABEL } from '../config/categories';
+import { CATEGORY_STYLE, HAZARD_LABEL, formatBuildingFloors } from '../config/categories';
 import { cordonText, rescueText, type MapOverlay, type Selection } from '../config/layers';
 import { endpointName } from '../config/route-query';
 
@@ -85,7 +85,7 @@ const buildingMarks = computed(() => {
       <div class="kv-row">
         <div class="kv"><span class="kv-k">分区</span><span class="kv-v">{{ building.zone }}</span></div>
         <div class="kv"><span class="kv-k">类别</span><span class="kv-v">{{ CATEGORY_STYLE[building.category].label }}</span></div>
-        <div class="kv"><span class="kv-k">层数</span><span class="kv-v mono">{{ building.floors === null ? '通高' : `${building.floors} 层` }}</span></div>
+        <div class="kv"><span class="kv-k">层数</span><span class="kv-v mono">{{ formatBuildingFloors(building) }}</span></div>
         <div class="kv"><span class="kv-k">估算容量</span><span class="kv-v mono">≈{{ building.capacity }}</span></div>
       </div>
       <p class="detail-line">风险标注：{{ building.risk_tag ?? '无' }}</p>

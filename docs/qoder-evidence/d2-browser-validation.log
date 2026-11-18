@@ -1,0 +1,11 @@
+1440px t=139 ready roads=R-N7E length=120.0 hazard=false blocked=false overflow=false
+1440px t=140 ready roads=R-N7-N1 R-N1-GATE3 length=660.0 hazard=true blocked=false overflow=false
+1440px t=164 ready roads=R-N7-N1 R-N1-GATE3 length=660.0 hazard=true blocked=false overflow=false
+1440px t=165 ready roads=R-N7-N1 R-N1-GATE3 length=660.0 hazard=true blocked=true overflow=false
+1440px 20 SVG buildings; E7 selectable; drill route ready; console warnings/errors=0; uncaught=0
+375px t=139 ready roads=R-N7E length=120.0 hazard=false blocked=false overflow=false
+375px t=140 ready roads=R-N7-N1 R-N1-GATE3 length=660.0 hazard=true blocked=false overflow=false
+375px t=164 ready roads=R-N7-N1 R-N1-GATE3 length=660.0 hazard=true blocked=false overflow=false
+375px t=165 ready roads=R-N7-N1 R-N1-GATE3 length=660.0 hazard=true blocked=true overflow=false
+375px 20 SVG buildings; E7 selectable; drill route ready; console warnings/errors=0; uncaught=0
+D2 Chrome browser verification PASSED; Chrome 157.0.8103.79

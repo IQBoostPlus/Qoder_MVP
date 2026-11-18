@@ -50,7 +50,7 @@ export interface Building {
   /** 真实苑/园分区，如“萃园·北区”“文博苑·中部” */
   zone: string;
   category: BuildingCategory;
-  /** 楼层数；null 表示大跨度通高或未公开，界面用“通高”展示，不推算高度 */
+  /** 楼层数；训练地图中，体育馆的 null 表示大跨度通高，其余 null 表示未公开。 */
   floors: number | null;
   /** 估算容量，训练级精度 */
   capacity: number;

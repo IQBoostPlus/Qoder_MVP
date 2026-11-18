@@ -1,0 +1,227 @@
+{
+  "captured_at": "2026-11-18T10:35:18.492359Z",
+  "source": "Qoder Sites get_database_schema",
+  "site_id": "01a1e975-1db9-72f3-8c5f-e01f8f858c83",
+  "project_id": "01a1e975-1db6-7009-9e6a-650853ca2bb1",
+  "schema_ref": "sr_3AIS_iabBFJOT4yAouMgaP6QkcFJUVLDo2gRPMRvI9fyMPipkWHb7X6mYpaS-dd6nxhJHRvDoGCv2Qg-P4HikVfYPzBBOfPT0eypSzJ-FvWZlGFt77F7Nu6DU5QY_Lslm6HehFvT09hiJd4WT_1dq8Zvif25TraBGYk1OtHRs7zTn-4DPSKsUooy6mADOyA83DlkYsQIulFOlfRerVPNyALfh83D8XNIytA7GPfRkKGwEtmjiCvOj_ppCNPi-qJ6KijnNeP-RgSbojZKSFeVHLtsMYhb1SaRBMLyLortkZI-J5VnAkPIvroh6Mgy6w",
+  "database": {
+    "status": "ready",
+    "stale": false,
+    "observed_at": "2026-11-18T10:35:18.492359Z",
+    "access_model": "function_backend"
+  },
+  "migrations": [
+    {
+      "migration_id": "01a1ee34-7fdc-7df7-9d28-a054afa425f7",
+      "client_id": "d2-probe-buildings-lower-20261118",
+      "apply_operation_id": "01a1ee34-a21f-721a-a24d-f4f7d7e880a2",
+      "terminal_state": "succeeded",
+      "message_code": "database_migration_applied"
+    },
+    {
+      "migration_id": "01a1ee34-f5a6-74da-9940-c7c339386ba7",
+      "client_id": "d2-campus-app-20261118-v4",
+      "apply_operation_id": "01a1ee35-0549-77dd-8f80-e57bb29104bc",
+      "terminal_state": "succeeded",
+      "message_code": "database_migration_applied"
+    }
+  ],
+  "summary": {
+    "business_tables": 8,
+    "verification_tables": 1,
+    "business_indexes": 15,
+    "verification_indexes": 2,
+    "foreign_keys": 6,
+    "primary_keys": 8,
+    "unique_constraints_besides_primary_key": 1,
+    "differences_from_candidate_migration": []
+  },
+  "tables": [
+    {
+      "name": "campus_buildings",
+      "columns": [
+        { "name": "id", "type": "text", "nullable": false, "default": "" },
+        { "name": "name", "type": "text", "nullable": false, "default": "" },
+        { "name": "zone", "type": "text", "nullable": false, "default": "" },
+        { "name": "category", "type": "text", "nullable": false, "default": "" },
+        { "name": "floors", "type": "integer", "nullable": true, "default": "" },
+        { "name": "capacity", "type": "integer", "nullable": false, "default": "" },
+        { "name": "risk_tag", "type": "text", "nullable": true, "default": "" },
+        { "name": "polygon_json", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "adjacency_json", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "is_training", "type": "integer", "nullable": false, "default": "1" },
+        { "name": "created_at", "type": "timestamp with time zone", "nullable": false, "default": "now()" }
+      ],
+      "foreign_keys": [],
+      "indexes": [
+        { "name": "campus_buildings_pkey", "method": "btree", "unique": true, "primary": true, "columns": ["id"] }
+      ]
+    },
+    {
+      "name": "road_segments",
+      "columns": [
+        { "name": "id", "type": "text", "nullable": false, "default": "" },
+        { "name": "name", "type": "text", "nullable": false, "default": "" },
+        { "name": "from_node_id", "type": "text", "nullable": false, "default": "" },
+        { "name": "to_node_id", "type": "text", "nullable": false, "default": "" },
+        { "name": "geometry_json", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "blocked", "type": "integer", "nullable": false, "default": "0" },
+        { "name": "hazard", "type": "text", "nullable": true, "default": "" },
+        { "name": "block_reason", "type": "text", "nullable": true, "default": "" },
+        { "name": "is_training", "type": "integer", "nullable": false, "default": "1" },
+        { "name": "updated_at", "type": "timestamp with time zone", "nullable": false, "default": "now()" }
+      ],
+      "foreign_keys": [],
+      "indexes": [
+        { "name": "idx_road_segments_from", "method": "btree", "unique": false, "primary": false, "columns": ["from_node_id"] },
+        { "name": "idx_road_segments_to", "method": "btree", "unique": false, "primary": false, "columns": ["to_node_id"] },
+        { "name": "road_segments_pkey", "method": "btree", "unique": true, "primary": true, "columns": ["id"] }
+      ]
+    },
+    {
+      "name": "disaster_templates",
+      "columns": [
+        { "name": "id", "type": "text", "nullable": false, "default": "" },
+        { "name": "name", "type": "text", "nullable": false, "default": "" },
+        { "name": "description", "type": "text", "nullable": false, "default": "" },
+        { "name": "modifiers_json", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "start_building_id", "type": "text", "nullable": false, "default": "" },
+        { "name": "standard_actions_json", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "critical_items_json", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "is_training", "type": "integer", "nullable": false, "default": "1" },
+        { "name": "created_at", "type": "timestamp with time zone", "nullable": false, "default": "now()" }
+      ],
+      "foreign_keys": [
+        { "name": "disaster_templates_start_building_id_fkey", "columns": ["start_building_id"], "reference_table": "campus_buildings", "reference_columns": ["id"] }
+      ],
+      "indexes": [
+        { "name": "disaster_templates_pkey", "method": "btree", "unique": true, "primary": true, "columns": ["id"] }
+      ]
+    },
+    {
+      "name": "action_catalog",
+      "columns": [
+        { "name": "id", "type": "text", "nullable": false, "default": "" },
+        { "name": "name", "type": "text", "nullable": false, "default": "" },
+        { "name": "target_kind", "type": "text", "nullable": false, "default": "" },
+        { "name": "critical", "type": "integer", "nullable": false, "default": "" },
+        { "name": "weight", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "duration_sim", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "resource_id", "type": "text", "nullable": false, "default": "" },
+        { "name": "resource_units", "type": "integer", "nullable": false, "default": "1" },
+        { "name": "preconditions_json", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "is_training", "type": "integer", "nullable": false, "default": "1" }
+      ],
+      "foreign_keys": [],
+      "indexes": [
+        { "name": "action_catalog_pkey", "method": "btree", "unique": true, "primary": true, "columns": ["id"] }
+      ]
+    },
+    {
+      "name": "scenarios",
+      "columns": [
+        { "name": "id", "type": "text", "nullable": false, "default": "" },
+        { "name": "template_id", "type": "text", "nullable": false, "default": "" },
+        { "name": "source", "type": "text", "nullable": false, "default": "" },
+        { "name": "title", "type": "text", "nullable": false, "default": "" },
+        { "name": "modifiers_json", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "start_building_id", "type": "text", "nullable": false, "default": "" },
+        { "name": "t_end", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "nodes_json", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "standard_actions_json", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "critical_items_json", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "is_training", "type": "integer", "nullable": false, "default": "1" },
+        { "name": "created_at", "type": "timestamp with time zone", "nullable": false, "default": "now()" }
+      ],
+      "foreign_keys": [
+        { "name": "scenarios_start_building_id_fkey", "columns": ["start_building_id"], "reference_table": "campus_buildings", "reference_columns": ["id"] },
+        { "name": "scenarios_template_id_fkey", "columns": ["template_id"], "reference_table": "disaster_templates", "reference_columns": ["id"] }
+      ],
+      "indexes": [
+        { "name": "idx_scenarios_template", "method": "btree", "unique": false, "primary": false, "columns": ["template_id"] },
+        { "name": "scenarios_pkey", "method": "btree", "unique": true, "primary": true, "columns": ["id"] }
+      ]
+    },
+    {
+      "name": "runs",
+      "columns": [
+        { "name": "id", "type": "text", "nullable": false, "default": "" },
+        { "name": "scenario_id", "type": "text", "nullable": false, "default": "" },
+        { "name": "branch", "type": "text", "nullable": false, "default": "" },
+        { "name": "playback_speed", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "started_at", "type": "timestamp with time zone", "nullable": false, "default": "now()" },
+        { "name": "ended_at", "type": "timestamp with time zone", "nullable": true, "default": "" },
+        { "name": "total_score", "type": "integer", "nullable": true, "default": "" },
+        { "name": "discrimination", "type": "jsonb", "nullable": true, "default": "" },
+        { "name": "response", "type": "jsonb", "nullable": true, "default": "" },
+        { "name": "coverage", "type": "jsonb", "nullable": true, "default": "" },
+        { "name": "violation", "type": "jsonb", "nullable": true, "default": "" },
+        { "name": "score_json", "type": "jsonb", "nullable": true, "default": "" },
+        { "name": "is_training", "type": "integer", "nullable": false, "default": "1" }
+      ],
+      "foreign_keys": [
+        { "name": "runs_scenario_id_fkey", "columns": ["scenario_id"], "reference_table": "scenarios", "reference_columns": ["id"] }
+      ],
+      "indexes": [
+        { "name": "idx_runs_scenario", "method": "btree", "unique": false, "primary": false, "columns": ["scenario_id"] },
+        { "name": "runs_pkey", "method": "btree", "unique": true, "primary": true, "columns": ["id"] }
+      ]
+    },
+    {
+      "name": "run_events",
+      "columns": [
+        { "name": "run_id", "type": "text", "nullable": false, "default": "" },
+        { "name": "seq", "type": "integer", "nullable": false, "default": "" },
+        { "name": "t_sim", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "kind", "type": "text", "nullable": false, "default": "" },
+        { "name": "payload_json", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "created_at", "type": "timestamp with time zone", "nullable": false, "default": "now()" }
+      ],
+      "foreign_keys": [
+        { "name": "run_events_run_id_fkey", "columns": ["run_id"], "reference_table": "runs", "reference_columns": ["id"] }
+      ],
+      "indexes": [
+        { "name": "idx_run_events_run_time", "method": "btree", "unique": false, "primary": false, "columns": ["run_id", "t_sim"] },
+        { "name": "run_events_pkey", "method": "btree", "unique": true, "primary": true, "columns": ["run_id", "seq"] }
+      ]
+    },
+    {
+      "name": "ugc_reports",
+      "columns": [
+        { "name": "id", "type": "text", "nullable": false, "default": "" },
+        { "name": "scenario_id", "type": "text", "nullable": false, "default": "" },
+        { "name": "appears_at_sim", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "category", "type": "text", "nullable": false, "default": "" },
+        { "name": "text", "type": "text", "nullable": false, "default": "" },
+        { "name": "event_truth_json", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "judgment_windows_json", "type": "jsonb", "nullable": false, "default": "" },
+        { "name": "priority", "type": "integer", "nullable": false, "default": "" },
+        { "name": "is_training", "type": "integer", "nullable": false, "default": "1" },
+        { "name": "created_at", "type": "timestamp with time zone", "nullable": false, "default": "now()" }
+      ],
+      "foreign_keys": [
+        { "name": "ugc_reports_scenario_id_fkey", "columns": ["scenario_id"], "reference_table": "scenarios", "reference_columns": ["id"] }
+      ],
+      "indexes": [
+        { "name": "idx_ugc_reports_scenario_time", "method": "btree", "unique": false, "primary": false, "columns": ["scenario_id", "appears_at_sim"] },
+        { "name": "ugc_reports_pkey", "method": "btree", "unique": true, "primary": true, "columns": ["id"] },
+        { "name": "ugc_reports_scenario_id_priority_key", "method": "btree", "unique": true, "primary": false, "columns": ["scenario_id", "priority"] }
+      ]
+    },
+    {
+      "name": "d1_connectivity_check",
+      "columns": [
+        { "name": "id", "type": "text", "nullable": false, "default": "" },
+        { "name": "run_id", "type": "text", "nullable": false, "default": "" },
+        { "name": "note", "type": "text", "nullable": false, "default": "" },
+        { "name": "is_training", "type": "integer", "nullable": false, "default": "1" },
+        { "name": "created_at", "type": "timestamp with time zone", "nullable": false, "default": "now()" }
+      ],
+      "foreign_keys": [],
+      "indexes": [
+        { "name": "d1_connectivity_check_pkey", "method": "btree", "unique": true, "primary": true, "columns": ["id"] },
+        { "name": "d1_connectivity_check_run_idx", "method": "btree", "unique": false, "primary": false, "columns": ["run_id"] }
+      ]
+    }
+  ]
+}

@@ -12,7 +12,8 @@
     "typecheck:app": "vue-tsc --noEmit -p tsconfig.app.json",
     "validate": "tsx scripts/validate-canonical.ts",
     "check:d1": "npm run typecheck && npm run validate",
-    "check:d1-v2": "npm run check:d1 && tsx scripts/validate-d1-v2.ts"
+    "check:d1-v2": "npm run check:d1 && tsx scripts/validate-d1-v2.ts",
+    "check:d2": "npm run check:d1-v2 && tsx scripts/validate-d2.ts"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

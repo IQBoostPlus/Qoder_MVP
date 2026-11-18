@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import type { MapView, RoadStatus, RouteResult } from '../fixture-port';
 import type { Point } from '../contracts';
-import { CATEGORY_STYLE, HAZARD_LABEL } from '../config/categories';
+import { CATEGORY_STYLE, HAZARD_LABEL, formatBuildingFloors } from '../config/categories';
 import {
   EMPTY_OVERLAY,
   cordonText,
@@ -190,7 +190,7 @@ const hoverInfo = computed<{ title: string; tag: string; lines: string[] } | nul
     const b = props.map.buildings.find((x) => x.id === h.id);
     if (!b) return null;
     const lines = [
-      `${CATEGORY_STYLE[b.category].label} · ${b.floors === null ? '通高' : `${b.floors} 层`} · 容量≈${b.capacity}`,
+      `${CATEGORY_STYLE[b.category].label} · ${formatBuildingFloors(b)} · 容量≈${b.capacity}`,
     ];
     if (b.risk_tag) lines.push(`风险：${b.risk_tag}`);
     const d = props.overlay.disaster.find((m) => m.building_id === b.id);
@@ -383,7 +383,7 @@ const buildingViews = computed<BuildingView[]>(() =>
       : undefined;
     const cordon = props.layers.cordon ? props.overlay.cordons.find((m) => m.building_id === b.id) : undefined;
     const rescue = props.layers.rescue ? props.overlay.rescues.find((m) => m.building_id === b.id) : undefined;
-    const floors = b.floors === null ? '通高' : `${b.floors} 层`;
+    const floors = formatBuildingFloors(b);
     return {
       id: b.id,
       name: b.name,

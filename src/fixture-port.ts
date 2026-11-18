@@ -72,6 +72,7 @@ export interface MapView {
 export type FixturePortErrorCode =
   | 'MAP_DUPLICATE_NODE_ID'
   | 'MAP_DUPLICATE_ROAD_ID'
+  | 'MAP_ROAD_SET_MISMATCH'
   | 'MAP_INVALID_GEOMETRY'
   | 'MAP_UNKNOWN_ENDPOINT'
   | 'MAP_SAME_ENDPOINTS'
@@ -102,8 +103,25 @@ function assertPoint(point: Point, roadId: string): void {
   }
 }
 
-function pointDistance(a: Point, b: Point): number {
-  return Math.hypot(a.x - b.x, a.y - b.y);
+export function roadLengthPx(road: RoadSegment): number {
+  if (road.geometry.length < 2) {
+    throw new FixturePortError('MAP_INVALID_GEOMETRY', road.id, '折线少于 2 个点');
+  }
+  let length = 0;
+  let previous: Point | undefined;
+  for (const point of road.geometry) {
+    if (!point) throw new FixturePortError('MAP_INVALID_GEOMETRY', road.id, '折线缺少点');
+    assertPoint(point, road.id);
+    if (previous) length += Math.hypot(point.x - previous.x, point.y - previous.y);
+    previous = point;
+  }
+  if (!Number.isFinite(length)) {
+    throw new FixturePortError('MAP_INVALID_GEOMETRY', road.id, '路段折线长度必须有限');
+  }
+  if (length === 0) {
+    throw new FixturePortError('MAP_ZERO_LENGTH', road.id, '路段折线长度必须大于 0');
+  }
+  return length;
 }
 
 export function buildMapView(
@@ -178,9 +196,7 @@ export function buildMapView(
     if (road.from === road.to) {
       throw new FixturePortError('MAP_SAME_ENDPOINTS', road.id, '起点与终点相同');
     }
-    if (road.geometry.length < 2) {
-      throw new FixturePortError('MAP_INVALID_GEOMETRY', road.id, '折线少于 2 个点');
-    }
+    const length = roadLengthPx(road);
 
     for (const point of road.geometry) includePoint(point, road.id);
 
@@ -192,18 +208,6 @@ export function buildMapView(
     if (junctionIds.has(road.from)) recordJunctionPosition(road.from, first, road.id);
     if (junctionIds.has(road.to)) recordJunctionPosition(road.to, last, road.id);
 
-    let length = 0;
-    for (let index = 1; index < road.geometry.length; index += 1) {
-      const previous = road.geometry[index - 1];
-      const current = road.geometry[index];
-      if (!previous || !current) {
-        throw new FixturePortError('MAP_INVALID_GEOMETRY', road.id, '折线缺少点');
-      }
-      length += pointDistance(previous, current);
-    }
-    if (!(length > 0)) {
-      throw new FixturePortError('MAP_ZERO_LENGTH', road.id, '路段折线长度必须大于 0');
-    }
     roadLengths.set(road.id, length);
   }
 
@@ -523,7 +527,7 @@ export interface RouteQuery {
   from_node_id: string;
   to_node_id: string;
   at_sim: SimSeconds;
-  /** D2 使用的当前路网状态；静态模式忽略，可以传 replayTo(...).roads 对应的路段。 */
+  /** 完整路段快照，由地图几何和 replayTo(...).roads 状态组装。省略时使用初始路网。 */
   road_segments?: readonly RoadSegment[];
 }
 
@@ -567,8 +571,9 @@ export interface FixturePort {
 export function createFixturePort(
   fixture: CanonicalFixture,
   mapSource: MapSource = fixture,
+  mapOptions: { padding?: number } = {},
 ): FixturePort {
-  const map = buildMapView(mapSource);
+  const map = buildMapView(mapSource, mapOptions);
   return {
     map,
     visibleReportsAt: (t) => visibleReportsAt(fixture, t),

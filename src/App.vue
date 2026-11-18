@@ -16,13 +16,13 @@ const MODE_TITLE: Record<Mode, string> = {
 };
 const MODE_SUB: Record<Mode, string> = {
   drill: 'NJIT 江宁 · FIXTURE 骨架 · 本地账本 · 合法性待 A',
-  map: 'NJIT 江宁 · D1-v2 FIXTURE PORT · READONLY',
-  diag: 'NJIT 江宁 · 构造 / 合成数据核对 · 非真实校园',
+  map: 'NJIT 江宁 · 训练地图与示例回放',
+  diag: 'NJIT 江宁 · 引擎接口与测试数据',
 };
 const MODE_META: Record<Mode, string> = {
   drill: 'D3 回合容器 + 时机框架 · 合法性待 A · 实时评分 D4',
-  map: 'D2 点选 + 图层 · 寻路待 A · 实时评分 D4',
-  diag: 'D1～D3 接口核对 · 构造输入非寻路结果',
+  map: 'D2 训练路网 · 阻断后自动改道',
+  diag: 'D1～D3 接口核对',
 };
 const modeTitle = computed(() => MODE_TITLE[tab.value]);
 const modeSub = computed(() => MODE_SUB[tab.value]);

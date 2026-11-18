@@ -2,7 +2,7 @@
 
 面向高校保卫处新值班员和辅导员的单人训练工具。以夜间宿舍火灾为例，学员会在地图上看到通道积水，也会收到位置含糊、相互重复的模拟上报。学员需要辨别线索、选中楼栋、安排处置。结束后可以沿时间线查到哪一步得分、哪项遗漏，以及当时有哪些信息可用。
 
-**项目状态**　2026-11-17，规格 v4.1。D1 引擎轨契约、基准数据与 **D1-v2 只读接口**校验通过（甲 83 / 乙 44 / 甲补做 A4 90；8 栋真实选点 + GATE3 + 8 条路段；`npm run check:d1-v2`）。D1-v2 只验证静态接入：地图派生、可见性、只读回放、道路状态与静态评分；D4 实时评分与 D2 寻路仍待交付。Sites 云端建表、Function 内读写与一次 Cloud Agent 真实调用（返回 `D1_OK`）已实测通过；同一连通性检查的重复调用限制见证据记录。D2 起仍先按预置剧本、预置上报与得分摘要兜底，直到完成正式业务对话。公开体验地址、其余实测结果和开发截图将在验证后补入。
+**项目状态**　2026-11-18，规格 v4.1。D2 已提前交付 20 栋、3 座校门、28 条双向训练道路。示例回放和推演舱已接入 Dijkstra，按快照在积水或封闭时重新计算。Chrome 桌面与 375px 验收通过，D1 八栋静态回归仍为 83 / 44 / 90，甲分支响应 45 秒。Qoder Sites 私有验证站已完成八表迁移、结构冻结和地图往返，452 项字段检查无差异。Agent 同一 Session 顺序复用已验，共收到两条回复。并发预算原子性、真实断流恢复和第 5 次请求兜底待验，平台配额数值未提供。推演仍使用预置剧本与上报，学员动作判定和实时评分分别在 D3、D4 接入。[D2 交接](docs/handoff-d2.md) · [云端验收](docs/qoder-evidence/D2-2026-11-18-cloud-acceptance.md)
 
 | 参赛事项 | 本期约定 |
 | --- | --- |
@@ -20,7 +20,10 @@
 | [`docs/quality-verification.md`](docs/quality-verification.md) | 质量需求、验收用例、三个检查点判据、测试清单、待测目标 |
 | [`docs/njit-campus-buildings.md`](docs/njit-campus-buildings.md) | 南京工程学院江宁校区建筑调研（名称、分区、层数、来源链接与置信度标记）。**建筑数据的原始依据** |
 | [`docs/handoff-d1.md`](docs/handoff-d1.md) | D1 → B 交接：读取入口、字段关系、**D1-v2 只读接口与空态**、已验证项与待联调 |
-| [`src/fixture-port.ts`](src/fixture-port.ts) | B 可直接调用的前端只读接口：地图派生、可见性、判断窗、回放、静态评分、路径空态 |
+| [`docs/handoff-d2.md`](docs/handoff-d2.md) | 当前 B 接口、完整路网、实际改道样例与云端待办 |
+| [`src/engine-port.ts`](src/engine-port.ts) | 应用入口：完整地图、回放、静态评分与 D2 路径结果 |
+| [`src/fixture-port.ts`](src/fixture-port.ts) | D1 地图派生、可见性、判断窗、回放、静态评分与静态路径空态 |
+| [`db/README.md`](db/README.md) | Sites 候选迁移、字段映射与本地读回验证 |
 | [`scripts/validate-d1-v2.ts`](scripts/validate-d1-v2.ts) | D1-v2 验收断言；完整输出见 [`d1-v2-local-validation.log`](docs/qoder-evidence/d1-v2-local-validation.log) |
 | [`fixtures/canonical-run.md`](fixtures/canonical-run.md) | D1 标准样例手算说明（配套 JSON、校验器与 83/44/90） |
 | [`docs/qoder-evidence/`](docs/qoder-evidence/README.md) | Qoder 使用过程凭证（强制留存） |
@@ -121,15 +124,16 @@ D4 判据之所以强调「实时计算、两份不同结果」，是因为**预
 
 **评分与调用口径。** 上报甄别、有效响应、标准动作命中、重复违规分别占 30%、20%、35%、15%。甄别取最后一次提交时所在判断窗口，响应从第一条真实上报出现算到首个相关有效动作完成。定位结果单列。每轮模型请求发出即计数，上限 4 次。结束推演先显示分数，点评等待 8 秒后可显示摘要。仅当原请求已结束且仍有预算时可重新生成。
 
-## D1-v2 静态接口与 A/B 边界
+## 本地验证
 
-B 通过 [`src/fixture-port.ts`](src/fixture-port.ts) 读取地图派生、可见性、判断窗、只读回放、道路状态与静态评分，不再复制寻路、判分或违规统计逻辑。接口可区分「权威引擎结果」「标准样例回放」与「能力待接入」：静态路径返回 `null`，页面显示「路径计算待引擎接入」；偏离标准流水时静态得分返回 `null`，页面显示「实时评分待引擎接入」。
+运行 `npm run dev`，在界面选择「示例回放」，选 N7 → GATE3，拖动时间轴至 139、140 和 165 秒查看路线及道路状态变化。「推演」按回合使用标准样例的道路状态。
 
 ```bash
-npm run check:d1-v2
+npm run check:d2
+npm run build
 ```
 
-本轮验收的是**静态接入**：地图投影与几何、t=80/t=300 可见性、甲 seq20 回放、R-N7E 在 140/164/165 的积水与封闭状态、甲乙拒绝码与违规序号、83 分静态基线、1×/4× 模拟时刻一致，以及实现内无硬编码专名/坐标/固定画布。**D4 仍须用实时引擎验证「一正一反」和临场改分；D2 仍须交付寻路纯函数。** 五项跨轨问题的原意、建议、待 B 确认项与责任人见 [`D1-2026-11-17-engine-port.md`](docs/qoder-evidence/D1-2026-11-17-engine-port.md)。
+`check:d2` 包含 `check:d1-v2`，并检查完整地图、短路最优性、道路阻断、快照兼容与回放接入。两份 D1 fixture 继续独立验证 8 栋。应用使用 [campus-map.json](fixtures/campus-map.json)，静态得分仅适用于原流水。运行输出及浏览器截图见 [D2 寻路证据](docs/qoder-evidence/D2-2026-11-18-routing-engine.md)。
 
 ## 相对前版的主要变化
 

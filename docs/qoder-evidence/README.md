@@ -47,7 +47,9 @@
 | D1 · 11/17 | 指挥舱改版：整屏零滚动 + 视觉重做（含 375px 舞台塌缩修复） | B | [D1-2026-11-17-console-redesign.md](D1-2026-11-17-console-redesign.md) | 已留存（对话截图待补；基线 exit 0） |
 | D1 · 11/17 | 双主题换肤：夜航指挥（默认）/ 教室投影·日光纸面，token 化 + 持久化切换 | B | [D1-2026-11-17-dual-theme.md](D1-2026-11-17-dual-theme.md) | 已留存（对话截图待补；对比度缺陷已闭环） |
 | D1 · 11/18 | 安装 anti-slop skill（design-taste-frontend）+ 界面去 AI 味精修 + 楼栋清单可读口径 + 320px 裁切修复 | B | [D1-2026-11-18-skill-deslop.md](D1-2026-11-18-skill-deslop.md) | 已留存（对话截图待补；双主题 1280/375/320 实测通过，基线 exit 0） |
-| D2 · 11/19 | 按 requirements §7.2 补齐 **20 栋真实建筑** + 路段邻接 + Dijkstra + 阻断重算 | A | — | 待采集 |
+| D2 · 11/18（排期 11/19） | 20 栋训练地图、Dijkstra、真实改道、数据库候选迁移 | A | [D2-2026-11-18-routing-engine.md](D2-2026-11-18-routing-engine.md) | 已留存（CLI、1440px / 375px 浏览器、本地 PostgreSQL 已验；云端冻结已验，见云端验收；并发原子性待验） |
+| D2 · 11/18 | 私有站登录后 D1 数据库连通性复验、Sites 方言适配 | A | [D2-2026-11-18-cloud-recheck.md](D2-2026-11-18-cloud-recheck.md) | 当时状态：D1 云端读写通过，D2 云端迁移及 Agent 复用未执行；后续见云端验收 |
+| D2 · 11/18 | 八表迁移、结构冻结、20 / 28 地图云端往返、私有 Function 发布、Agent 持久复用 | A | [D2-2026-11-18-cloud-acceptance.md](D2-2026-11-18-cloud-acceptance.md) | 已留存（迁移 / 地图 / Agent 通过；并发原子性、真实断流、第 5 次兜底、配额待验） |
 | D2 · 11/18 | 地图点选 + 图层 + 路径线 + 阻断标记 + 375px 实测 | B | [D2-2026-11-18-map-interaction-layers.md](D2-2026-11-18-map-interaction-layers.md) | 已留存（对话截图待补；30 项实测 + CD-04 构造验证；RE-06 真实改道待 A，实时评分待 D4） |
 | D3 · 11/20 | 规则引擎 6 动作 + 单测 | A | — | 待采集 |
 | D3 · 11/20 | 推演页布局 + 回合状态机/时间轴 + 控速播放 + 分批投放 + 回合内自由行动时机框架 | B | [D3-2026-11-18-drill-rounds-playback.md](D3-2026-11-18-drill-rounds-playback.md) | 已留存（对话截图待补；32 项实测 + 双主题 AA；动作真实判定/评分待 A，完整动作面板/排序交互/实时评分待 D4） |

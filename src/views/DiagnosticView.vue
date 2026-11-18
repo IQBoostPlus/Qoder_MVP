@@ -4,6 +4,7 @@ import {
   FixturePortError,
   SCORE_PENDING_TEXT,
   buildMapView,
+  createFixturePort,
   type MapSource,
   type ReplayOptions,
   type ReplaySnapshot,
@@ -21,6 +22,7 @@ import RoutePanel from '../components/RoutePanel.vue';
 
 const port = useFixturePort();
 const fixture = useFixtureData();
+const staticPort = createFixturePort(fixture);
 const map = port.map;
 const nodes = fixture.scenario.nodes;
 const runs = fixture.runs;
@@ -186,7 +188,10 @@ function constructedReady(): RouteResult | null {
 }
 const constructedMode = ref<'ready' | 'unreachable' | 'none'>('ready');
 const constructedRoute = computed<RouteResult | null>(() => {
-  if (constructedMode.value === 'none') return null;
+  if (constructedMode.value === 'none') {
+    const query = constructedQuery.value;
+    return query ? staticPort.getRoute(query) : null;
+  }
   const ready = constructedReady();
   if (!ready || constructedMode.value === 'ready') return ready;
   return {
@@ -1031,7 +1036,7 @@ async function runTimingChecks(): Promise<void> {
       <header class="panel-head">
         <span class="panel-no">05</span>
         <h2>路径查询<code>getRoute</code></h2>
-        <span class="panel-sub">显式起终点 · 快照状态传参 · 寻路待 A</span>
+        <span class="panel-sub">D2 寻路 · 使用回放道路快照</span>
       </header>
       <div class="panel-body">
         <div class="controls route-controls">
@@ -1075,7 +1080,7 @@ async function runTimingChecks(): Promise<void> {
           </div>
         </template>
         <RoutePanel :route="routeResult" :query="routeQuery" :map="map" :roads="snapshot?.roads ?? []" />
-        <p class="note">null（待接入）与 unreachable（已计算但不可达）是两种状态；文案均 import 常量。是否把 hazard 视为不可通行由 A 的寻路决定。</p>
+        <p class="note">此处使用 D2 寻路引擎。积水等灾情出现时立即绕行，正式封闭仍单独记录。</p>
       </div>
     </section>
 
@@ -1175,8 +1180,7 @@ async function runTimingChecks(): Promise<void> {
       </header>
       <div class="panel-body">
         <p class="note">
-          A 的 getRoute 仍返回 null。此处用沿真实路段几何拼接的构造 RouteResult 证明 ready / unreachable
-          两个渲染分支可用；链为显式测试数据（{{ CONSTRUCTED_CHAIN.join(' → ') }}），B 不实现寻路。RE-06 阻断后重算记「待 A」。
+          此处用显式测试链（{{ CONSTRUCTED_CHAIN.join(' → ') }}）检验渲染分支。真实寻路见面板 05。
         </p>
         <div class="controls">
           <button type="button" class="btn" :class="{ 'btn-primary': constructedMode === 'ready' }" :aria-pressed="constructedMode === 'ready'" @click="constructedMode = 'ready'">构造 ready</button>
@@ -1208,7 +1212,7 @@ async function runTimingChecks(): Promise<void> {
         </div>
         <p class="note">
           数据为程序化生成的 20 栋 + 3 路口栅格路网，仅验证界面不含硬编码 id / 名称 / 坐标 / viewBox；
-          点选、键盘与选中详情逻辑与 8 栋完全一致。真实 20 栋选点由 A 按 requirements §7 交付。
+          该面板保留合成数据回归用例。正式训练地图可在地图页查看。
         </p>
       </div>
     </section>

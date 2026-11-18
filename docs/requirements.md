@@ -84,14 +84,17 @@ D1 上午冻结，写入 `src/contracts.ts` 与 `fixtures/`。
 
 ```ts
 Building      { id, name, zone, category, floors, capacity, risk_tag, polygon, adjacency: string[] }
-RoadSegment   { id, from, to, blocked: boolean }   // from/to 引用 Building.id 或 Junction.id
+RoadSegment   { id, name, from, to, geometry: Point[], blocked: boolean, hazard: 'flood'|'fire'|'debris'|null, block_reason: string|null }
 Junction      { id, name, kind: 'gate'|'crossing' } // 校门与路口，非楼栋，不计入 20 栋
-ActionDef     { id, name, applies_to, preconditions, duration_sim, cost, weight, critical }
+ActionDef     { id, name, target_kind: 'building'|'road', critical, weight, duration_sim, resource_id, resource_units, preconditions }
 Scenario      { id, template_id, modifiers, nodes: Node[], standard_actions, critical_items, t_end }
-Node          { t_sim, events: Event[] }            // events 可为空 = 推进回合
-RunEvent      { seq, t_sim, kind: 'disaster'|'ugc'|'action'|'verdict', payload }
-ScoreResult   { discrimination, response, coverage, violation, total, breakdown }
+Node          { t_sim, events: ScenarioEvent[] }   // events 可为空 = 推进回合
+ScenarioEvent { type: 'ugc_appear'|'disaster_confirm'|'road_hazard', ... }
+RunEvent      { seq, t_sim, kind: 'verdict'|'action'|'sort', payload }
+ScoreResult   { discrimination, response, coverage, violation, total, details: ScoreDetails, sorting? }
 ```
+
+`RoadSegment.from/to` 可引用楼栋或 Junction。学员流水按 `kind` 对应判读、动作或排序载荷，写入 `run_events`。场景投放和灾情写入 `scenarios.nodes_json`。
 
 `zone` 取真实分区名（萃园/润园/学海苑/至行苑/至和苑/文博苑/天健苑/至馨苑等），`floors` 取 §7 清单口径。`capacity` 为**模拟估算**，仅图书馆阅览座位数有公开资料支撑。
 
@@ -133,11 +136,11 @@ UgcReport {
 
 ```
 campus_buildings, road_segments, disaster_templates, action_catalog
-scenarios(source: generated|fallback)
+scenarios(source: generated|fallback|canonical)
 runs, run_events, ugc_reports(is_training=1)
 ```
 
-D1 定稿 DDL，D2 结束前冻结结构，之后只做增量变更，由 A、B 共同确认。
+D1 SQLite 基线与 D2 Sites PostgreSQL 迁移均为八张业务表。Junction 随 `d2-1` 地图发布，由应用校验路段引用。D2 八表已在 Qoder Sites 私有验证站迁移并核对冻结，楼栋和路段共 452 项字段检查无差异。冻结后由 A、B 共同确认增量变更。[数据库映射](../db/README.md) · [私有站验收](qoder-evidence/D2-2026-11-18-cloud-acceptance.md)
 
 ---
 
@@ -448,10 +451,12 @@ priority 本轮内唯一，末回合排序正确答案 = **{U2, U8, U4}**。U6 �
 | R-CN1-GYM | CN1 | GYM | 北区至体育中心的训练级简化连接 |
 | R-GYM-LIB | GYM | LIB | 体育中心至图书馆 |
 
-A 在 D2 补齐至 20 栋的完整邻接表，须包含跨区通道（北区↔东区约 800–1000 m，调研文档 🔶），使跨区增援耗时明显高于区内。
+D2 的 [完整地图](../fixtures/campus-map.json) 包含 20 栋、3 座校门和 28 条双向模拟道路。原有 8 条路段保留，部分折线首尾补齐同一楼栋连接点。新增 `R-N1-GATE3` 是训练备用道路，供北 7 东侧积水或封闭时经北 1 绕行。教学区连接北区、东区与南门。
+
+寻路权重是图上相对长度，按折线的欧氏距离之和计算（px）。与区内案例相比，跨区路线在图上更长。灾情和正式封闭均使道路不可通行，地图分别展示两类状态。调研中的实际距离不用于换算，动作完成时刻仍按各自固定的 `duration_sim` 计算。
 
 ### 7.4 D1 fixture 子集（8 栋，供 B 先行开发）
 
 **N7、N1、N2、N11、CN1、CN2、GYM、LIB** + Junction **GATE3** + §7.3 全部 8 条路段。
 
-这 8 栋足以渲染地图、跑通手算样例两分支、演示阻断改道。A 在 D2 补齐至 20 栋时**只增数据不改结构**，B 的渲染代码零改动。几何先用规则占位多边形，A 确认或替换；**B 不得在代码里硬编码任何楼栋 id、名称或坐标**。
+这 8 栋用于 D1 静态地图、道路状态和手算评分回归，数据保存在 `fixtures/buildings.json` 与 `fixtures/canonical-run.json`。D2 另用同结构的 `fixtures/campus-map.json` 渲染地图和计算路径，复用现有地图组件。界面从数据读取楼栋 ID、名称与坐标。

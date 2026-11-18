@@ -41,14 +41,14 @@ function fromName(id: string): string {
 
 <template>
   <div class="route-panel">
-    <!-- null：待引擎接入（A 寻路未交付时恒 null）；未选终点时不发 degenerate 请求 -->
+    <!-- null：等待查询或使用 D1 静态入口 -->
     <div v-if="route === null" class="empty-state blue" id="route-pending">
       <svg class="es-icon" viewBox="0 0 16 16" aria-hidden="true">
         <circle cx="3" cy="8" r="2" />
         <circle cx="13" cy="8" r="2" />
         <path d="M5.5 8h5" stroke-dasharray="2 2" />
       </svg>
-      <span>{{ ROUTE_PENDING_TEXT }}</span>
+      <span>{{ query ? ROUTE_PENDING_TEXT : '请选择起终点' }}</span>
     </div>
 
     <!-- unreachable：已计算但不可达，灰色虚线风格，与 null 的文案和颜色都区分 -->
@@ -84,7 +84,7 @@ function fromName(id: string): string {
 
     <p v-if="route === null && query === null" class="note">选择路径终点后发起查询；起终点相同时禁用查询。</p>
     <p v-else-if="route === null" class="note mono">
-      query: {{ query?.from_node_id }} → {{ query?.to_node_id }} @ t={{ query?.at_sim }}（A 寻路交付后即通）
+      query: {{ query?.from_node_id }} → {{ query?.to_node_id }} @ t={{ query?.at_sim }}
     </p>
     <p v-else-if="route.status === 'unreachable'" class="note mono">reason: {{ route.reason }}</p>
   </div>

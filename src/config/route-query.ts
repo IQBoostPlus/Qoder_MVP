@@ -49,7 +49,7 @@ export function buildRouteQuery(
       return {
         ...seg,
         blocked: st?.formally_closed ?? seg.blocked,
-        hazard: st?.hazard ?? seg.hazard,
+        hazard: st ? st.hazard : seg.hazard,
       };
     }),
   };

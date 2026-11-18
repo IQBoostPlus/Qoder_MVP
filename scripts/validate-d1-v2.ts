@@ -638,4 +638,4 @@ console.log('replay: jia seq20 5 accepted/4 rejected/5 occupancy; R-N7E flood at
 console.log('rejections: jia [14,20]; yi [9,14,15]');
 console.log('score: jia 83; mutation=>null; 1x/4x response=45s');
 console.log('route: null (pending); hardcode scan clean; README precision notice matched');
-console.log('A 接口已测，B 页面待测（无页面，不以字符串存在替代 UI 验收）');
+console.log('D1 静态接口回归通过；D2 应用接入和浏览器验收见 D2 记录');
