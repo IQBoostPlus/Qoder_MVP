@@ -5,14 +5,24 @@
   "type": "module",
   "description": "Campus emergency desktop drill sandbox — D1 engine contracts and canonical fixture",
   "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit -p tsconfig.app.json && vite build",
+    "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "typecheck:app": "vue-tsc --noEmit -p tsconfig.app.json",
     "validate": "tsx scripts/validate-canonical.ts",
     "check:d1": "npm run typecheck && npm run validate",
     "check:d1-v2": "npm run check:d1 && tsx scripts/validate-d1-v2.ts"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
+    "@vitejs/plugin-vue": "^6.0.11",
     "tsx": "^4.23.15",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vite": "^8.3.8",
+    "vue-tsc": "^3.3.14"
+  },
+  "dependencies": {
+    "vue": "^3.5.45"
   }
 }

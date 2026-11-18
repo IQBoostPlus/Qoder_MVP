@@ -42,9 +42,13 @@
 | D1 · 11/17 | Sites 建表 / Function 内读写 / Cloud Agent 连通性 spike | A | [d1-cloud-verification.md](d1-cloud-verification.md) | 已留存（DB 与 Agent 均通过；重试限制已记录） |
 | D1 · 11/17 | Function 内数据库读写结果截图 | A | [d1-function-db-success.png](d1-function-db-success.png) | 已留存 |
 | D1 · 11/17 | 契约冻结（类型 + fixture + DDL + 权重 + 模拟时钟）+ **手算样例** + **8 栋真实选点 fixture** | A + B | [A 基线](D1-2026-11-17-canonical-data-alignment.md) · [B 草案与冻结核对](D1-2026-11-17-contracts-fixtures.md) | 已留存（**已冻结**，以 A 基线 e9d4a07 为准；B 独立复核见条目 §6） |
-| D1 · 11/18 | 项目骨架 + SVG 渲染 fixture 8 栋 + 响应式栅格 + 首屏声明 | B | — | 待采集 |
+| D1 · 11/17 | 前端骨架（Vite+Vue3+TS）+ 接入 A 只读接口 + 浏览器侧 16 项验证 + 五项跨轨答复 | B | [D1-2026-11-17-frontend-port-integration.md](D1-2026-11-17-frontend-port-integration.md) | 已留存（对话截图待补；静态接入，实时评分待 A） |
+| D1 · 11/18 | 项目骨架 + SVG 渲染 fixture 8 栋 + 响应式栅格 + 首屏声明 | B | [D1-2026-11-17-svg-map-responsive.md](D1-2026-11-17-svg-map-responsive.md) | 已留存（对话截图待补；静态渲染，点选/实时评分待 D2/D4） |
+| D1 · 11/17 | 指挥舱改版：整屏零滚动 + 视觉重做（含 375px 舞台塌缩修复） | B | [D1-2026-11-17-console-redesign.md](D1-2026-11-17-console-redesign.md) | 已留存（对话截图待补；基线 exit 0） |
+| D1 · 11/17 | 双主题换肤：夜航指挥（默认）/ 教室投影·日光纸面，token 化 + 持久化切换 | B | [D1-2026-11-17-dual-theme.md](D1-2026-11-17-dual-theme.md) | 已留存（对话截图待补；对比度缺陷已闭环） |
+| D1 · 11/18 | 安装 anti-slop skill（design-taste-frontend）+ 界面去 AI 味精修 + 楼栋清单可读口径 + 320px 裁切修复 | B | [D1-2026-11-18-skill-deslop.md](D1-2026-11-18-skill-deslop.md) | 已留存（对话截图待补；双主题 1280/375/320 实测通过，基线 exit 0） |
 | D2 · 11/19 | 按 requirements §7.2 补齐 **20 栋真实建筑** + 路段邻接 + Dijkstra + 阻断重算 | A | — | 待采集 |
-| D2 · 11/19 | 地图点选 + 图层 + 路径线 + 阻断标记 + 375px 实测 | B | — | 待采集 |
+| D2 · 11/18 | 地图点选 + 图层 + 路径线 + 阻断标记 + 375px 实测 | B | [D2-2026-11-18-map-interaction-layers.md](D2-2026-11-18-map-interaction-layers.md) | 已留存（对话截图待补；30 项实测 + CD-04 构造验证；RE-06 真实改道待 A，实时评分待 D4） |
 | D3 · 11/20 | 规则引擎 6 动作 + 单测 | A | — | 待采集 |
 | D3 · 11/20 | 推演页布局 + 时间轴 UI 与控速 | B | — | 待采集 |
 | D4 · 11/21 | 评分器四指标 + 单测 + **双分支 83/44 实时计算里程碑** | A | — | 待采集 |
