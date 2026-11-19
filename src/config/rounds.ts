@@ -24,6 +24,5 @@ export function deriveRounds(scenario: Scenario): RoundInfo[] {
   });
 }
 
-export const DRILL_MODE_BADGE = 'fixture 推演 · 实时评分待 D4';
-export const DRILL_SKELETON_BADGE = 'fixture 骨架演示';
+export const DRILL_MODE_BADGE = '预置剧本，实时判定与评分';
 export const ENGINE_PENDING_LABEL = '待引擎接入';

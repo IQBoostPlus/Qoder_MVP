@@ -11,8 +11,8 @@ const props = defineProps<{
   map: MapView;
   roads: readonly RoadStatus[];
   overlay: MapOverlay;
-  /** 推演页传入动作目录时显示临时提交入口；示例回放不传，保持只读。 */
   actions?: readonly ActionDef[];
+  actionDisabled?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -34,7 +34,7 @@ const actionChoices = computed<readonly ActionDef[]>(() => {
   return props.actions.filter((action) => action.target_kind === kind);
 });
 function emitAction(): void {
-  if (actionChoice.value === '' || !props.selection) return;
+  if (props.actionDisabled || actionChoice.value === '' || !props.selection) return;
   emit('action', actionChoice.value, props.selection.id);
 }
 
@@ -66,6 +66,7 @@ const buildingMarks = computed(() => {
     disaster: props.overlay.disaster.find((m) => m.building_id === id) ?? null,
     cordon: props.overlay.cordons.find((m) => m.building_id === id) ?? null,
     rescue: props.overlay.rescues.find((m) => m.building_id === id) ?? null,
+    powerCut: props.overlay.powerCuts.find((m) => m.building_id === id) ?? null,
   };
 });
 </script>
@@ -96,7 +97,8 @@ const buildingMarks = computed(() => {
         </p>
         <p v-if="buildingMarks?.cordon" class="state-line c-amber">{{ cordonText(buildingMarks.cordon) }} · seq{{ buildingMarks.cordon.seq }}</p>
         <p v-if="buildingMarks?.rescue" class="state-line c-green">{{ rescueText(buildingMarks.rescue) }} · seq{{ buildingMarks.rescue.seq }}</p>
-        <p v-if="!buildingMarks?.disaster && !buildingMarks?.cordon && !buildingMarks?.rescue" class="state-line dim">
+        <p v-if="buildingMarks?.powerCut" class="state-line c-red">已断电 @{{ buildingMarks.powerCut.at_sim }} · seq{{ buildingMarks.powerCut.seq }}</p>
+        <p v-if="!buildingMarks?.disaster && !buildingMarks?.cordon && !buildingMarks?.rescue && !buildingMarks?.powerCut" class="state-line dim">
           当前时刻无灾情 / 警戒 / 救援队标记
         </p>
       </div>
@@ -159,21 +161,20 @@ const buildingMarks = computed(() => {
       </div>
     </template>
 
-    <!-- 推演页临时提交入口：对象按 target_kind 匹配动作（A5→路段，其余→楼栋；路口无动作） -->
     <template v-if="actionChoices.length > 0">
       <div class="detail-actions">
         <label class="control action-control">
           <span class="control-label">动作</span>
-          <select v-model="actionChoice" aria-label="选择处置动作">
+          <select v-model="actionChoice" :disabled="actionDisabled" aria-label="选择处置动作">
             <option value="" disabled>请选择</option>
             <option v-for="a in actionChoices" :key="a.id" :value="a.id">
               {{ a.id }} {{ a.name }} · {{ a.duration_sim }}s
             </option>
           </select>
         </label>
-        <button class="btn" :disabled="actionChoice === ''" @click="emitAction">提交动作（临时）</button>
+        <button class="btn" :disabled="actionDisabled || actionChoice === ''" @click="emitAction">提交动作</button>
       </div>
-      <p class="note">提交时刻 = 当前回合节点 t_sim（FR-4.7）；合法性由 A 规则引擎判定，未接入时记「待引擎接入」，不预设通过或拒绝。</p>
+      <p v-if="actionDisabled" class="note">当前只读，无法提交动作。</p>
     </template>
   </div>
 </template>

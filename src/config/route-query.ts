@@ -1,4 +1,4 @@
-import type { MapView, ReplaySnapshot, RouteQuery } from '../fixture-port';
+import type { MapView, RoundSnapshot, RouteQuery } from '../fixture-port';
 import type { Unlocatable } from '../contracts';
 
 export const UNLOCATABLE: Unlocatable = '无法定位';
@@ -34,7 +34,7 @@ export function locationOptions(map: MapView): { id: string; name: string }[] {
  */
 export function buildRouteQuery(
   map: MapView,
-  snapshot: ReplaySnapshot | null,
+  snapshot: Pick<RoundSnapshot, 'roads'> | null,
   fromNodeId: string,
   toNodeId: string,
   atSim: number,

@@ -196,9 +196,11 @@ const hoverInfo = computed<{ title: string; tag: string; lines: string[] } | nul
     const d = props.overlay.disaster.find((m) => m.building_id === b.id);
     const c = props.overlay.cordons.find((m) => m.building_id === b.id);
     const r = props.overlay.rescues.find((m) => m.building_id === b.id);
+    const powerCut = props.overlay.powerCuts.find((m) => m.building_id === b.id);
     if (d) lines.push(`灾情：${d.title} @${d.at_sim}`);
     if (c) lines.push(cordonText(c));
     if (r) lines.push(rescueText(r));
+    if (powerCut) lines.push(`已断电 @${powerCut.at_sim}`);
     return { title: b.name, tag: '楼栋', lines };
   }
   if (h.kind === 'road') {
@@ -368,6 +370,7 @@ interface BuildingView {
   disasterAt: number | null;
   cordonLabel: string | null;
   rescueLabel: string | null;
+  powerCutAt: number | null;
   aria: string;
 }
 
@@ -383,6 +386,7 @@ const buildingViews = computed<BuildingView[]>(() =>
       : undefined;
     const cordon = props.layers.cordon ? props.overlay.cordons.find((m) => m.building_id === b.id) : undefined;
     const rescue = props.layers.rescue ? props.overlay.rescues.find((m) => m.building_id === b.id) : undefined;
+    const powerCutAt = props.overlay.powerCuts.find((m) => m.building_id === b.id)?.at_sim ?? null;
     const floors = formatBuildingFloors(b);
     return {
       id: b.id,
@@ -407,7 +411,8 @@ const buildingViews = computed<BuildingView[]>(() =>
       disasterAt: disaster?.at_sim ?? null,
       cordonLabel: cordon ? cordonText(cordon) : null,
       rescueLabel: rescue ? rescueText(rescue) : null,
-      aria: `${b.name}，楼栋，${CATEGORY_STYLE[b.category].label}，${floors}，估算容量${b.capacity}${b.risk_tag === null ? '' : `，风险${b.risk_tag}`}${disaster ? `，灾情：${disaster.title}` : ''}${cordon ? `，${cordonText(cordon)}` : ''}${rescue ? `，${rescueText(rescue)}` : ''}${isSelected('building', b.id) ? '，已选中' : ''}`,
+      powerCutAt,
+      aria: `${b.name}，楼栋，${CATEGORY_STYLE[b.category].label}，${floors}，估算容量${b.capacity}${b.risk_tag === null ? '' : `，风险${b.risk_tag}`}${disaster ? `，灾情：${disaster.title}` : ''}${cordon ? `，${cordonText(cordon)}` : ''}${rescue ? `，${rescueText(rescue)}` : ''}${powerCutAt === null ? '' : `，已断电 @${powerCutAt}`}${isSelected('building', b.id) ? '，已选中' : ''}`,
     };
   }),
 );
@@ -571,6 +576,7 @@ const presentCategories = computed(() => {
           <text :x="bv.rc.x" :y="bv.rc.y - 14" text-anchor="middle" class="b-name">{{ bv.name }}</text>
           <text :x="bv.rc.x" :y="bv.rc.y + 6" text-anchor="middle" class="b-meta">{{ bv.floors }} · 容量≈{{ bv.capacity }}</text>
           <text v-if="bv.risk !== null" :x="bv.rc.x" :y="bv.rc.y + 26" text-anchor="middle" class="b-risk">▲ {{ bv.risk }}</text>
+          <text v-if="bv.powerCutAt !== null" :x="bv.rc.x" :y="bv.rc.y + 42" text-anchor="middle" class="b-risk power-cut">已断电 @{{ bv.powerCutAt }}</text>
           <g v-if="bv.cordonLabel !== null" class="mark-cordon">
             <text :x="bv.c.x" :y="bv.box.minY - 26 - bv.h" text-anchor="middle">{{ bv.cordonLabel }}</text>
           </g>
@@ -686,6 +692,7 @@ const presentCategories = computed(() => {
 .campus-svg:active { cursor: grabbing; }
 
 .stage-bg { fill: var(--ink-950); }
+.b-risk.power-cut { fill: var(--red); }
 .grid-line { fill: none; stroke: var(--grid-svg); stroke-width: 1; }
 #bld-sheen stop { stop-color: var(--sheen); }
 

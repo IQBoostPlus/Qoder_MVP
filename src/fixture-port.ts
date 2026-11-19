@@ -17,6 +17,7 @@ import type {
   RoadSegment,
   RunEvent,
   ScenarioEvent,
+  Scenario,
   ScoreResult,
   SimSeconds,
   SortSubmission,
@@ -309,11 +310,14 @@ export interface ReplayCut {
   applied_t_sim: SimSeconds;
 }
 
-export interface ReplaySnapshot {
-  run_id: string;
+export interface PowerCutStatus {
+  building_id: string;
+  at_sim: SimSeconds;
+  seq: number;
+}
+
+export interface RoundSnapshot {
   scenario_id: string;
-  branch: '甲' | '乙' | '甲补做A4';
-  playback_speed: number;
   /** 快照对应的模拟时刻 */
   t_sim: SimSeconds;
   cut: ReplayCut;
@@ -331,6 +335,13 @@ export interface ReplaySnapshot {
   /** 快照时刻仍在占用的资源 */
   active_resource_occupancy: readonly ResourceUsage[];
   roads: readonly RoadStatus[];
+  power_cuts: readonly PowerCutStatus[];
+}
+
+export interface ReplaySnapshot extends RoundSnapshot {
+  run_id: string;
+  branch: '甲' | '乙' | '甲补做A4';
+  playback_speed: number;
 }
 
 const isActionEvent = (event: RunEvent): event is Extract<RunEvent, { kind: 'action' }> =>
@@ -339,6 +350,20 @@ const isVerdictEvent = (event: RunEvent): event is Extract<RunEvent, { kind: 've
   event.kind === 'verdict';
 const isSortEvent = (event: RunEvent): event is Extract<RunEvent, { kind: 'sort' }> =>
   event.kind === 'sort';
+
+export function actionCompletedBy(
+  action: ActionAttempt,
+  t: SimSeconds,
+): action is ActionAttempt & { completed_at_sim: SimSeconds } {
+  return action.status === 'accepted' && action.completed_at_sim !== null && action.completed_at_sim <= t;
+}
+
+export function scenarioEventsAt(scenario: Scenario, t: SimSeconds): ScenarioEventAt[] {
+  return scenario.nodes
+    .filter((node) => node.t_sim <= t)
+    .sort((a, b) => a.t_sim - b.t_sim)
+    .flatMap((node) => node.events.map((event) => ({ node_id: node.id, t_sim: node.t_sim, event })));
+}
 
 export function replayTo(
   fixture: CanonicalFixture,
@@ -381,18 +406,45 @@ export function replayTo(
     snapshotT = Math.min(options.t_sim, lastIncludedT, fixture.scenario.t_end);
   }
 
-  const scenarioEvents: ScenarioEventAt[] = [];
-  for (const node of fixture.scenario.nodes) {
-    if (node.t_sim > snapshotT) continue;
-    for (const event of node.events) {
-      scenarioEvents.push({
-        node_id: node.id,
-        t_sim: node.t_sim,
-        event: structuredClone(event),
-      });
-    }
-  }
+  return {
+    ...deriveRoundState(fixture, includedEvents, {
+      requested_seq: options.seq ?? null,
+      requested_t_sim: options.t_sim ?? null,
+      applied_t_sim: snapshotT,
+    }, run.resource_occupancy),
+    run_id: run.run_id,
+    scenario_id: run.scenario_id,
+    branch: run.branch,
+    playback_speed: run.playback_speed,
+  };
+}
 
+/** 学员轮次没有示例 run_id/branch；查看时刻之外的操作和效果不可见。 */
+export function snapshotRound(
+  source: { scenario: Scenario; road_segments: readonly RoadSegment[] },
+  events: readonly RunEvent[],
+  t: SimSeconds,
+): RoundSnapshot {
+  if (!Number.isFinite(t) || t < 0) {
+    throw new FixturePortError('REPLAY_INVALID_CUT', 't_sim', '时刻必须是非负有限数');
+  }
+  const snapshotT = Math.min(t, source.scenario.t_end);
+  const included = events.filter((event) => event.t_sim <= snapshotT).sort((a, b) => a.seq - b.seq);
+  return deriveRoundState(source, structuredClone(included), {
+    requested_seq: null,
+    requested_t_sim: t,
+    applied_t_sim: snapshotT,
+  });
+}
+
+function deriveRoundState(
+  source: { scenario: Scenario; road_segments: readonly RoadSegment[] },
+  includedEvents: readonly RunEvent[],
+  cut: ReplayCut,
+  recordedOccupancy?: readonly ResourceUsage[],
+): RoundSnapshot {
+  const snapshotT = cut.applied_t_sim;
+  const scenarioEvents = structuredClone(scenarioEventsAt(source.scenario, snapshotT));
   const latestByReport = new Map<ReportId, VerdictAttempt>();
   const actions: ActionAttempt[] = [];
   let sorting: SortSubmission | null = null;
@@ -408,16 +460,16 @@ export function replayTo(
   const latestVerdicts = [...latestByReport.values()].sort((a, b) => a.seq - b.seq);
 
   const includedActionSeqs = new Set(actions.map((action) => action.seq));
-  const occupancy = run.resource_occupancy
-    .filter((usage) => includedActionSeqs.has(usage.action_seq))
-    .map((usage) => structuredClone(usage));
+  const occupancy = recordedOccupancy
+    ? recordedOccupancy.filter((usage) => includedActionSeqs.has(usage.action_seq)).map((usage) => structuredClone(usage))
+    : actions.flatMap((action) => action.status === 'accepted' && action.resource_usage ? [action.resource_usage] : []);
   const activeOccupancy = occupancy.filter(
     (usage) =>
       usage.from_sim <= snapshotT &&
       (usage.to_sim === null || snapshotT < usage.to_sim),
   );
 
-  const roads: RoadStatus[] = fixture.road_segments.map((road) => {
+  const roads: RoadStatus[] = source.road_segments.map((road) => {
     let hazard: RoadHazard = road.hazard;
     let hazardAt: SimSeconds | null = hazard === null ? null : 0;
     let hazardDescription: string | null = null;
@@ -436,9 +488,7 @@ export function replayTo(
       if (
         action.action_id === 'A5' &&
         action.target_id === road.id &&
-        action.status === 'accepted' &&
-        action.completed_at_sim !== null &&
-        action.completed_at_sim <= snapshotT
+        actionCompletedBy(action, snapshotT)
       ) {
         if (closedAt === null || action.completed_at_sim >= closedAt) {
           closed = true;
@@ -461,17 +511,19 @@ export function replayTo(
     };
   });
 
+  const powerCuts = new Map<string, PowerCutStatus>();
+  for (const action of actions) {
+    if (action.action_id === 'A6' && actionCompletedBy(action, snapshotT)) {
+      const previous = powerCuts.get(action.target_id);
+      if (!previous || action.completed_at_sim < previous.at_sim) {
+        powerCuts.set(action.target_id, { building_id: action.target_id, at_sim: action.completed_at_sim, seq: action.seq });
+      }
+    }
+  }
   return {
-    run_id: run.run_id,
-    scenario_id: run.scenario_id,
-    branch: run.branch,
-    playback_speed: run.playback_speed,
+    scenario_id: source.scenario.id,
     t_sim: snapshotT,
-    cut: {
-      requested_seq: options.seq ?? null,
-      requested_t_sim: options.t_sim ?? null,
-      applied_t_sim: snapshotT,
-    },
+    cut,
     scenario_events: scenarioEvents,
     events: includedEvents,
     latest_verdicts: latestVerdicts,
@@ -480,6 +532,7 @@ export function replayTo(
     resource_occupancy: occupancy,
     active_resource_occupancy: activeOccupancy,
     roads,
+    power_cuts: [...powerCuts.values()],
   };
 }
 

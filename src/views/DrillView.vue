@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import type { ActionId, LocationChoice, Verdict, VerdictAttempt } from '../contracts';
+import { ActionEngineError } from '../action-engine';
+import { SORT_LIMIT } from '../score-engine';
 import { useFixturePort, useFixtureData } from '../composables/useFixturePort';
-import { useDrillRound, pendingActionText } from '../composables/useDrillRound';
+import { useDrillRound } from '../composables/useDrillRound';
 import { CATEGORY_STYLE, HAZARD_LABEL, formatBuildingFloors } from '../config/categories';
 import {
   LAYER_ORDER,
@@ -15,7 +17,6 @@ import {
   type SelectionKind,
 } from '../config/layers';
 import { buildRouteQuery, endpointOptions, endpointName, locationOptions, UNLOCATABLE } from '../config/route-query';
-import { DRILL_SKELETON_BADGE } from '../config/rounds';
 import CampusMap from '../components/CampusMap.vue';
 import MapLegend from '../components/MapLegend.vue';
 import RoutePanel from '../components/RoutePanel.vue';
@@ -27,7 +28,7 @@ const port = useFixturePort();
 const fixture = useFixtureData();
 const map = port.map;
 
-const drill = useDrillRound(fixture, port);
+const drill = useDrillRound(fixture, port, { judgeAction: port.judgeAction });
 const {
   rounds,
   tEnd,
@@ -37,24 +38,26 @@ const {
   currentT,
   canPrev,
   canNext,
+  canWrite,
+  finished,
+  furthestRoundIndex,
   sortOpen,
   speed,
   playing,
-  entries,
   deliveredReports,
   lastBatch,
   realElapsedMs,
 } = drill;
 
-const runs = fixture.runs;
-const skeletonRunId = ref(runs[0]?.run_id ?? '');
-// 做法 2（A 引擎未就绪）：地图/图层/道路/占用以标准样例 replayTo 为骨架，显式标注；
-// 学员操作进入本地账本，合法性待 A 引擎，绝不以骨架冒充临场引擎结果。
-const skeleton = computed(() => port.replayTo(skeletonRunId.value, { t_sim: currentT.value }));
-const roads = computed(() => skeleton.value?.roads ?? []);
-const overlay = computed(() => deriveLayerMarks(skeleton.value));
-// 评分恒带第二参数（本地账本）；偏离基线 → null → SCORE_PENDING_TEXT，不回退 expected_scores。
-const score = computed(() => port.getScore(skeletonRunId.value, drill.currentEvents.value));
+const snapshot = computed(() => port.snapshotRound(drill.currentEvents.value, currentT.value));
+const roads = computed(() => snapshot.value.roads);
+const overlay = computed(() => deriveLayerMarks(snapshot.value));
+const result = computed(() => finished.value ? port.scoreRound(drill.currentEvents.value) : null);
+const reviewResult = computed(() => currentT.value === tEnd ? result.value : null);
+const assessments = computed(() => new Map(reviewResult.value?.judgments.map((item) => [item.report_id, item])));
+const resultSection = ref<HTMLElement | null>(null);
+const ledgerSection = ref<HTMLElement | null>(null);
+const reportsSection = ref<HTMLElement | null>(null);
 
 const dockTab = ref<'round' | 'reports' | 'roads' | 'route' | 'legend' | 'score'>('round');
 
@@ -84,7 +87,7 @@ const degenerate = computed(() => routeTo.value !== '' && routeFrom.value === ro
 const routeQuery = computed(() =>
   routeTo.value === '' || degenerate.value
     ? null
-    : buildRouteQuery(map, skeleton.value, routeFrom.value, routeTo.value, currentT.value),
+    : buildRouteQuery(map, snapshot.value, routeFrom.value, routeTo.value, currentT.value),
 );
 const route = computed(() => (routeQuery.value ? port.getRoute(routeQuery.value) : null));
 function setEndpoint(id: string, role: 'from' | 'to'): void {
@@ -131,6 +134,9 @@ const situation = computed<SituationEntry[]>(() => {
       list.push({ key: `x-${r.road_id}`, color: 'var(--red)', text: `${r.name} · 已封闭 @${r.closed_at_sim} · seq${r.closed_by_action_seq}` });
     }
   }
+  for (const cut of overlay.value.powerCuts) {
+    list.push({ key: `power-${cut.seq}`, color: 'var(--red)', text: `${endpointName(map, cut.building_id)} · 已断电 @${cut.at_sim} · seq${cut.seq}` });
+  }
   return list;
 });
 
@@ -139,20 +145,15 @@ const closedCount = computed(() => roads.value.filter((r) => r.formally_closed).
 const totalReports = fixture.ugc_reports.length;
 const realSeconds = computed(() => (realElapsedMs.value / 1000).toFixed(1));
 
-// ---- 判读临时控件（D3 只记录与 stamp；判断窗对照反馈 / 改判覆盖完整 UI 属 D4） ----
+// 判读草稿只在提交时写入流水。
 const VERDICTS: Verdict[] = ['真报', '误报', '待核'];
-const drafts = ref<Record<string, { verdict: Verdict; location: string }>>({});
-watch(
-  deliveredReports,
-  (reports) => {
-    for (const report of reports) {
-      if (!drafts.value[report.id]) drafts.value[report.id] = { verdict: '待核', location: '' };
-    }
-  },
-  { immediate: true },
-);
-function draftFor(reportId: string): { verdict: Verdict; location: string } {
-  return drafts.value[reportId] ?? { verdict: '待核', location: '' };
+type VerdictDraft = { verdict: Verdict; location: string };
+function newDrafts(): Record<string, VerdictDraft> {
+  return Object.fromEntries(fixture.ugc_reports.map(({ id }) => [id, { verdict: '待核', location: '' }]));
+}
+const drafts = ref(newDrafts());
+function draftFor(reportId: string): VerdictDraft {
+  return drafts.value[reportId]!;
 }
 function locationName(id: string): string {
   return id === UNLOCATABLE ? UNLOCATABLE : endpointName(map, id);
@@ -163,16 +164,24 @@ function recordVerdict(reportId: string): void {
   const location: LocationChoice | null = draft.location === '' ? null : draft.location;
   drill.submitVerdict(reportId, draft.verdict, location);
 }
-function latestVerdictOf(reportId: string): VerdictAttempt | null {
-  let latest: VerdictAttempt | null = null;
-  for (const entry of entries.value) {
-    if (entry.kind === 'verdict' && entry.event.payload.report_id === reportId) latest = entry.event.payload;
-  }
-  return latest;
-}
+const reportCards = computed(() => {
+  const latest = new Map<string, VerdictAttempt>(snapshot.value.latest_verdicts.map((item) => [item.report_id, item]));
+  return deliveredReports.value.map((report) => ({
+    report,
+    verdict: latest.get(report.id),
+    assessment: assessments.value.get(report.id),
+  }));
+});
 
+const actionError = ref('');
 function onAction(actionId: ActionId, targetId: string): void {
-  drill.submitAction(actionId, targetId);
+  actionError.value = '';
+  try {
+    drill.submitAction(actionId, targetId);
+  } catch (error) {
+    if (!(error instanceof ActionEngineError)) throw error;
+    actionError.value = error.message;
+  }
   dockTab.value = 'round';
 }
 
@@ -183,12 +192,12 @@ interface LedgerRow {
   detail: string;
   stamp: number;
   state: string;
-  pending: boolean;
+  tone?: 'cell-amber' | 'cell-red';
 }
 const ledgerRows = computed<LedgerRow[]>(() =>
-  entries.value.map((entry) => {
-    if (entry.kind === 'verdict') {
-      const p = entry.event.payload;
+  snapshot.value.events.map((event) => {
+    if (event.kind === 'verdict') {
+      const p = event.payload;
       const where = p.location === null ? '未定位' : locationName(p.location);
       return {
         seq: p.seq,
@@ -196,44 +205,72 @@ const ledgerRows = computed<LedgerRow[]>(() =>
         detail: `${p.report_id} → ${p.verdict} · ${where}`,
         stamp: p.judged_at_sim,
         state: p.supersedes_seq === null ? '已记录' : `改判 · 覆盖 seq${p.supersedes_seq}`,
-        pending: false,
       };
     }
-    if (entry.kind === 'action-pending') {
-      const s = entry.submission;
-      const def = fixture.action_catalog.find((a) => a.id === s.action_id);
+    if (event.kind === 'sort') {
       return {
-        seq: s.seq,
-        kindLabel: '动作',
-        detail: `${s.action_id} ${def?.name ?? ''} → ${endpointName(map, s.target_id)} · 第${s.attempt}次`,
-        stamp: s.submitted_at_sim,
-        state: pendingActionText(s, currentT.value),
-        pending: true,
+        seq: event.seq, kindLabel: '排序', detail: event.payload.ordered_report_ids.join(' → '),
+        stamp: event.t_sim, state: '已记录',
       };
     }
-    const p = entry.event.payload;
+    const p = event.payload;
+    const complete = p.completed_at_sim !== null && p.completed_at_sim <= currentT.value;
+    const def = fixture.action_catalog.find((action) => action.id === p.action_id);
     return {
       seq: p.seq,
       kindLabel: '动作',
-      detail: `${p.action_id} → ${endpointName(map, p.target_id)} · 第${p.attempt}次`,
+      detail: `${p.action_id} ${def?.name ?? ''} → ${endpointName(map, p.target_id)} · 第${p.attempt}次`,
       stamp: p.submitted_at_sim,
       state:
         p.status === 'accepted'
-          ? `已通过 · 完成 @${p.completed_at_sim}`
+          ? (complete ? `已完成 @${p.completed_at_sim}` : `已通过 · 进行中 · 预计 @${p.completed_at_sim}`)
           : `已拒绝 · ${p.reject_reason_code ?? ''} ${p.reject_reason ?? ''}`,
-      pending: false,
+      tone: p.status === 'rejected' ? 'cell-red' : complete ? undefined : 'cell-amber',
     };
   }),
 );
+const lastActionRow = computed(() => {
+  const seq = snapshot.value.actions.at(-1)?.seq;
+  return ledgerRows.value.find((row) => row.seq === seq);
+});
 
-const sortNotice = ref(false);
-function openSort(): void {
-  if (sortOpen.value) sortNotice.value = true;
+const sortExpanded = ref(false);
+const sortDraft = ref<string[]>([]);
+const sortCount = computed(() => Math.min(SORT_LIMIT, deliveredReports.value.length));
+const sortReady = computed(() => {
+  const slots = Array.from({ length: sortCount.value }, (_, index) => sortDraft.value[index]);
+  return slots.length > 0 && slots.every(Boolean) && new Set(slots).size === slots.length;
+});
+function saveSort(): void {
+  if (!sortReady.value) return;
+  if (drill.submitSort(sortDraft.value.slice(0, sortCount.value))) sortExpanded.value = false;
+}
+function revealSection(section: HTMLElement | null): void {
+  section?.scrollIntoView({ block: 'start' });
+  section?.focus({ preventScroll: true });
+}
+async function finishDrill(): Promise<void> {
+  if (!drill.finishDrill()) return;
+  dockTab.value = 'score';
+  await nextTick();
+  revealSection(resultSection.value);
+}
+async function openReviewTab(tab: 'reports' | 'round'): Promise<void> {
+  dockTab.value = tab;
+  await nextTick();
+  revealSection(tab === 'reports' ? reportsSection.value : ledgerSection.value);
 }
 function resetDrill(): void {
   drill.resetDrill();
-  sortNotice.value = false;
-  drafts.value = {};
+  sortExpanded.value = false;
+  sortDraft.value = [];
+  dockTab.value = 'round';
+  drafts.value = newDrafts();
+  actionError.value = '';
+  clearSelection();
+  hovered.value = null;
+  routeFrom.value = fixture.scenario.start_building_id;
+  routeTo.value = '';
 }
 </script>
 
@@ -281,7 +318,7 @@ function resetDrill(): void {
         <div class="hud hud-tr">
           <span class="hud-label">NETWORK</span>
           <span class="hud-line">{{ map.buildings.length }} 栋 · {{ map.road_segments.length }} 路段 · {{ map.junctions.length }} 路口</span>
-          <span class="hud-line dim">骨架 {{ skeletonRunId }} · 非临场引擎结果</span>
+          <span v-if="!canWrite" class="hud-line dim">回看只读</span>
         </div>
 
         <div class="hud hud-br">
@@ -342,47 +379,67 @@ function resetDrill(): void {
         <p class="round-stats mono" id="round-stats">
           可见 {{ deliveredReports.length }}/{{ totalReports }} · 本回合新增 {{ lastBatch.length }} · 真实用时 {{ realSeconds }}s（不计分）
         </p>
-        <div class="drill-notice">
-          <span class="badge badge-blue badge-sm">{{ DRILL_SKELETON_BADGE }}</span>
-          <label class="control">
-            <span class="control-label">骨架流水</span>
-            <select v-model="skeletonRunId" id="skeleton-select" aria-label="骨架样例流水">
-              <option v-for="r in runs" :key="r.run_id" :value="r.run_id">{{ r.branch }} · {{ r.run_id }}</option>
-            </select>
-          </label>
-        </div>
-        <p class="note">地图 / 图层 / 道路 / 占用来自标准样例骨架 replayTo，随回合刷新；学员操作进入本地账本，动作合法性待 A 规则引擎接入。这不是临场引擎结果。</p>
+        <p v-if="finished" id="drill-review" class="note" role="status">本轮已结算。可切换节点回看，末回合显示复盘结果。</p>
+        <p v-else-if="!canWrite" id="drill-review" class="note" role="status">回看只读。返回第 {{ furthestRoundIndex + 1 }} 回合后可继续提交。</p>
       </section>
 
       <section class="rail-sec sec-detail">
-        <div class="rail-head"><span class="no">R1</span><h2>对象详情 · 临时提交</h2><span class="sub">select</span></div>
+        <div class="rail-head"><span class="no">R1</span><h2>对象详情</h2><span class="sub">select</span></div>
         <ObjectDetail
           :selection="selected"
           :map="map"
           :roads="roads"
           :overlay="overlay"
           :actions="fixture.action_catalog"
+          :action-disabled="!canWrite"
           @jump="jumpTo"
           @endpoint="setEndpoint"
           @action="onAction"
         />
+        <p v-if="actionError" class="alert-error" role="alert">{{ actionError }}</p>
+        <p v-else-if="lastActionRow" id="action-feedback" class="note" role="status" :class="lastActionRow.tone">
+          {{ lastActionRow.detail }} · {{ lastActionRow.state }}
+        </p>
         <p class="note">时刻跳转落在 ≥ 目标时刻的首个回合（回合是离散节点，不插值）。</p>
       </section>
 
       <section class="rail-sec sec-situation">
-        <div class="rail-head"><span class="no">R2</span><h2>当前态势</h2><span class="sub">skeleton</span></div>
+        <div class="rail-head"><span class="no">R2</span><h2>当前态势</h2></div>
         <ul v-if="situation.length" class="situation-list">
           <li v-for="entry in situation" :key="entry.key">
             <span class="sit-dot" :style="{ background: entry.color }" aria-hidden="true"></span>
             <span>{{ entry.text }}</span>
           </li>
         </ul>
-        <p v-else class="note">当前回合骨架无灾情 / 警戒 / 救援队 / 封闭标记；随回合推进出现。</p>
+        <p v-else class="note">当前时刻暂无态势标记。</p>
       </section>
 
-      <section class="rail-sec sec-round">
-        <div class="rail-head"><span class="no">R3</span><h2>回合账本</h2><span class="sub">local ledger</span></div>
+      <section ref="ledgerSection" class="rail-sec sec-round" tabindex="-1" aria-labelledby="drill-ledger-heading">
+        <div class="rail-head"><span class="no">R3</span><h2 id="drill-ledger-heading">回合账本</h2><span class="sub">local ledger</span></div>
         <p class="note">回合内一切操作时刻 = 当前节点 t_sim（FR-4.7 / TC-06）；真实用时单独累计，不参与 stamp、不计分（FR-4.6）。</p>
+        <div class="sort-gate">
+          <button v-if="!finished && !snapshot.sorting" class="btn" id="sort-entry" :disabled="!sortOpen"
+            :aria-expanded="sortOpen && sortExpanded" @click="sortExpanded = !sortExpanded">整批优先级排序</button>
+          <p v-if="snapshot.sorting" class="note" id="sort-saved" role="status">已提交 {{ snapshot.sorting.ordered_report_ids.join(' → ') }} · seq{{ snapshot.sorting.seq }}</p>
+          <p v-else-if="!sortOpen && !finished" class="note">末回合（T+{{ tEnd }}s）开放排序。</p>
+          <form v-if="sortOpen && sortExpanded" class="sort-form" @submit.prevent="saveSort">
+            <p class="note">按紧急程度选出 {{ sortCount }} 条上报。每条只能使用一次。</p>
+            <label v-for="(_, index) in sortCount" :key="index" class="control">
+              <span class="control-label">第 {{ index + 1 }} 位</span>
+              <select v-model="sortDraft[index]" :aria-label="`优先级第 ${index + 1} 位`">
+                <option value="">未选择</option>
+                <option v-for="report in deliveredReports" :key="report.id" :value="report.id"
+                  :disabled="sortDraft.some((id, slot) => slot !== index && id === report.id)">{{ report.id }} · {{ report.text }}</option>
+              </select>
+            </label>
+            <button class="btn" type="submit" :disabled="!sortReady">提交排序</button>
+          </form>
+          <div v-if="sortOpen" class="drill-finish">
+            <button class="btn finish-btn" id="finish-drill" @click="finishDrill">结束推演并查看评分</button>
+            <p class="note">排序可跳过。结算后可回看本轮。</p>
+          </div>
+        </div>
+
         <div v-if="ledgerRows.length" class="table-wrap">
           <table class="data" id="ledger-table">
             <thead>
@@ -394,62 +451,64 @@ function resetDrill(): void {
                 <td>{{ row.kindLabel }}</td>
                 <td class="wrap">{{ row.detail }}</td>
                 <td class="num cell-amber">{{ row.stamp }}</td>
-                <td :class="row.pending ? 'cell-amber' : ''">{{ row.state }}</td>
+                <td :class="row.tone">{{ row.state }}</td>
               </tr>
             </tbody>
           </table>
         </div>
         <p v-else class="note">本会话暂无操作。在图上选楼栋 / 路段提交动作，或到「上报」页签判读；推进回合（无新事件）同样可行动（TC-07）。</p>
 
-        <div class="sort-gate">
-          <button class="btn" id="sort-entry" :disabled="!sortOpen" @click="openSort">整批优先级排序（仅末回合）</button>
-          <p v-if="!sortOpen" class="note">末回合 t_end={{ tEnd }} 才开放（VS-03）；届时全部 {{ totalReports }} 条上报可见（VS-04）。</p>
-          <p v-else-if="sortNotice" class="note" id="sort-placeholder">入口已开放：选 3 条排序的完整交互属 D4，D3 只做门控占位，未实现排序提交。</p>
-          <p v-else class="note">末回合：排序入口开放，点击显示 D4 占位说明。</p>
-        </div>
-
-        <div class="rail-head occ-head"><span class="no">R3b</span><h2>资源占用</h2><span class="sub">骨架 active @{{ currentT }}</span></div>
+        <div class="rail-head occ-head"><span class="no">R3b</span><h2>资源占用</h2><span class="sub">@{{ currentT }}</span></div>
         <OccupancyBars
           :resources="fixture.scenario.resources"
-          :occupancy="skeleton?.resource_occupancy ?? []"
-          :active="skeleton?.active_resource_occupancy ?? []"
+          :occupancy="snapshot.resource_occupancy"
+          :active="snapshot.active_resource_occupancy"
         />
-        <p class="note">占用区间来自骨架快照；学员动作的占用与容量校验待 A 引擎判定后进入账本，界面只展示。</p>
       </section>
 
-      <section class="rail-sec sec-reports">
-        <div class="rail-head"><span class="no">R4</span><h2>模拟上报</h2><span class="sub">分批投放</span></div>
+      <section ref="reportsSection" class="rail-sec sec-reports" tabindex="-1" aria-labelledby="drill-reports-heading">
+        <div class="rail-head"><span class="no">R4</span><h2 id="drill-reports-heading">模拟上报</h2><span class="sub">分批投放</span></div>
         <p v-if="lastBatch.length > 0" class="batch-banner" id="batch-banner">本回合新增 {{ lastBatch.length }} 条</p>
         <p class="note">进入回合投放 appears_at_sim ≤ 当前节点且尚未投放的上报；未到线索不可见（FR-4.1 / VS-01）。不要求判完整批即可行动（VS-02）。</p>
         <ul class="report-list">
-          <li v-for="report in deliveredReports" :key="report.id" class="report-card">
+          <li v-for="{ report, verdict, assessment } in reportCards" :key="report.id" class="report-card">
             <div class="report-head">
               <span class="report-id mono">{{ report.id }}</span>
               <span class="report-at mono">@{{ report.appears_at_sim }}</span>
               <span class="badge badge-red badge-sm">训练模拟数据</span>
             </div>
             <p class="report-text">{{ report.text }}</p>
-            <p v-if="latestVerdictOf(report.id)" class="report-verdict">
-              已记录：{{ latestVerdictOf(report.id)?.verdict }} ·
-              {{ latestVerdictOf(report.id)?.location === null ? '未定位' : locationName(latestVerdictOf(report.id)?.location ?? '') }}
-              @{{ latestVerdictOf(report.id)?.judged_at_sim }}
-              <template v-if="latestVerdictOf(report.id)?.supersedes_seq !== null"> · 改判覆盖 seq{{ latestVerdictOf(report.id)?.supersedes_seq }}</template>
+            <p v-if="verdict" class="report-verdict">
+              已记录：{{ verdict.verdict }} ·
+              {{ verdict.location === null ? '未定位' : locationName(verdict.location) }}
+              @{{ verdict.judged_at_sim }}
+              <template v-if="verdict.supersedes_seq !== null"> · 改判覆盖 seq{{ verdict.supersedes_seq }}</template>
             </p>
+            <div v-if="assessment" class="round-feedback" :data-report="report.id">
+              <p v-if="assessment.attempt === null">未判读</p>
+              <template v-else>
+                <p><strong>{{ assessment.correct ? '判读正确' : '判读有误' }}</strong> · 当时应判 {{ assessment.window?.expected ?? '无适用窗口' }}</p>
+                <p>{{ assessment.window?.reason }}</p>
+              </template>
+              <p>定位{{ assessment.location_correct ? '正确' : '未命中' }} · 参考 {{ assessment.expected_location === null ? '未设定' : locationName(assessment.expected_location) }}</p>
+            </div>
             <div class="verdict-controls">
-              <label class="control">
-                <span class="control-label">判读</span>
-                <select v-model="draftFor(report.id).verdict" :aria-label="`判读 ${report.id}`">
-                  <option v-for="v in VERDICTS" :key="v" :value="v">{{ v }}</option>
-                </select>
-              </label>
-              <label class="control">
-                <span class="control-label">定位</span>
-                <select v-model="draftFor(report.id).location" :aria-label="`定位 ${report.id}`">
-                  <option value="">未选择</option>
-                  <option v-for="opt in locations" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
-                </select>
-              </label>
-              <button class="btn" @click="recordVerdict(report.id)">记录判读</button>
+              <template v-if="canWrite">
+                <label class="control">
+                  <span class="control-label">判读</span>
+                  <select v-model="draftFor(report.id).verdict" :aria-label="`判读 ${report.id}`">
+                    <option v-for="v in VERDICTS" :key="v" :value="v">{{ v }}</option>
+                  </select>
+                </label>
+                <label class="control">
+                  <span class="control-label">定位</span>
+                  <select v-model="draftFor(report.id).location" :aria-label="`定位 ${report.id}`">
+                    <option value="">未选择</option>
+                    <option v-for="opt in locations" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
+                  </select>
+                </label>
+              </template>
+              <button class="btn" :disabled="!canWrite" @click="recordVerdict(report.id)">{{ verdict ? '记录改判' : '记录判读' }}</button>
             </div>
           </li>
         </ul>
@@ -457,7 +516,7 @@ function resetDrill(): void {
       </section>
 
       <section class="rail-sec sec-roads">
-        <div class="rail-head"><span class="no">R5</span><h2>道路双状态</h2><span class="sub">骨架 RoadStatus</span></div>
+        <div class="rail-head"><span class="no">R5</span><h2>道路双状态</h2><span class="sub">本轮道路</span></div>
         <div class="table-wrap">
           <table class="data" id="drill-roads-table">
             <thead>
@@ -495,7 +554,7 @@ function resetDrill(): void {
             </tbody>
           </table>
         </div>
-        <p class="note">骨架道路态随回合更新；选中路段后可在「对象详情」提交 A5 封路（合法性待 A 引擎）。</p>
+        <p class="note">选中路段可提交 A5。正式封闭在动作完成时生效。</p>
       </section>
 
       <section class="rail-sec sec-route">
@@ -517,7 +576,7 @@ function resetDrill(): void {
         </div>
         <div v-if="degenerate" class="alert-error" id="drill-route-degenerate">起点与终点相同，已禁用查询；请另选终点。</div>
         <RoutePanel :route="route" :query="routeQuery" :map="map" :roads="roads" />
-        <p class="note">路径随标准样例的道路状态更新，长度为图上 px。</p>
+        <p class="note">路径随本轮道路状态更新，长度为图上 px。</p>
       </section>
 
       <section class="rail-sec sec-legend">
@@ -562,10 +621,27 @@ function resetDrill(): void {
         </div>
       </section>
 
-      <section class="rail-sec sec-score">
-        <div class="rail-head"><span class="no">R8</span><h2>评分</h2><span class="sub">待 D4</span></div>
-        <ScorePanel :score="score" />
-        <p class="note">评分恒传本地账本第二参数：偏离基线 → null → 待接入常量，绝不回退基线分。实时评分里程碑属 D4；违规明细只读 ScoreResult.details.violation_event_seqs，呈现属 D4。</p>
+      <section ref="resultSection" class="rail-sec sec-score" tabindex="-1" aria-labelledby="drill-score-heading">
+        <div class="rail-head"><h2 id="drill-score-heading">评分与复盘</h2></div>
+        <template v-if="reviewResult">
+          <ScorePanel :score="reviewResult" />
+          <p class="note" id="drill-location-score">定位 {{ reviewResult.location.correct }}/{{ reviewResult.location.total }} · 单独统计</p>
+          <ul v-if="reviewResult.details.missed_items.length" class="score-misses" aria-label="未命中动作">
+            <li v-for="item in reviewResult.details.missed_items" :key="`${item.action_id}-${item.target_id}`">
+              {{ fixture.action_catalog.find((action) => action.id === item.action_id)?.name ?? item.action_id }} · {{ endpointName(map, item.target_id) }}
+            </li>
+          </ul>
+          <div v-if="reviewResult.sorting" class="round-feedback" id="drill-sort-result">
+            <p><strong>{{ reviewResult.sorting.actual.length === 0 ? '未提交排序' : reviewResult.sorting.correct ? '排序正确' : '排序有误' }}</strong></p>
+            <p v-if="reviewResult.sorting.actual.length">提交 {{ reviewResult.sorting.actual.join(' → ') }}</p>
+            <p>参考 {{ reviewResult.sorting.expected.join(' → ') }}</p>
+          </div>
+          <div class="controls recap-controls">
+            <button class="btn" @click="openReviewTab('reports')">查看逐条判读反馈</button>
+            <button class="btn" @click="openReviewTab('round')">查看流水时间线</button>
+          </div>
+        </template>
+        <p v-else class="note">{{ finished ? '返回末回合查看评分。' : '在末回合结束推演后查看评分。' }}</p>
       </section>
     </aside>
   </section>

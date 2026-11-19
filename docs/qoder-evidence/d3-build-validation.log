@@ -1,0 +1,20 @@
+PS> npm run typecheck:app
+
+> campus-emergency-drill@0.1.0 typecheck:app
+> vue-tsc --noEmit -p tsconfig.app.json
+
+PS> npm run build
+
+> campus-emergency-drill@0.1.0 build
+> vue-tsc --noEmit -p tsconfig.app.json && vite build
+
+vite v8.3.8 building client environment for production...
+transforming...
+✓ 51 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.57 kB │ gzip:  0.40 kB
+dist/assets/index-C9MEa44L.css   42.27 kB │ gzip:  8.32 kB
+dist/assets/index-BlMjEfIE.js   235.93 kB │ gzip: 73.57 kB
+
+✓ built in 387ms

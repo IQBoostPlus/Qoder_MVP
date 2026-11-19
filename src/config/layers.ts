@@ -1,4 +1,4 @@
-import type { ReplaySnapshot } from '../fixture-port';
+import type { PowerCutStatus, RoundSnapshot } from '../fixture-port';
 
 // 键为语义图层名，不是楼栋/路段 id；D2 补 20 栋时此表零改动。
 export type LayerKey = 'disaster' | 'cordon' | 'rescue';
@@ -74,15 +74,16 @@ export interface MapOverlay {
   disaster: DisasterMark[];
   cordons: CordonMark[];
   rescues: RescueMark[];
+  powerCuts: readonly PowerCutStatus[];
 }
 
-export const EMPTY_OVERLAY: MapOverlay = { disaster: [], cordons: [], rescues: [] };
+export const EMPTY_OVERLAY: MapOverlay = { disaster: [], cordons: [], rescues: [], powerCuts: [] };
 
 /**
  * 只消费快照：scenario_events 已由 replayTo 按可见性截断（t=80 不含 t=90 的灾情确认），
  * 这里不做任何可见性/判断窗推导。同一楼栋多次灾情标注按最新覆盖。
  */
-export function deriveLayerMarks(snapshot: ReplaySnapshot | null): MapOverlay {
+export function deriveLayerMarks(snapshot: RoundSnapshot | null): MapOverlay {
   if (!snapshot) return EMPTY_OVERLAY;
   const t = snapshot.t_sim;
 
@@ -120,7 +121,7 @@ export function deriveLayerMarks(snapshot: ReplaySnapshot | null): MapOverlay {
     }
   }
 
-  return { disaster: [...disasterByBuilding.values()], cordons, rescues };
+  return { disaster: [...disasterByBuilding.values()], cordons, rescues, powerCuts: snapshot.power_cuts };
 }
 
 export function cordonText(mark: CordonMark): string {

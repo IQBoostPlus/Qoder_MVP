@@ -1,28 +1,19 @@
-import { computed, getCurrentInstance, onUnmounted, ref, watch } from 'vue';
+import { computed, getCurrentScope, onScopeDispose, ref, shallowRef, watch } from 'vue';
 import type {
-  ActionAttempt,
   ActionId,
   CanonicalFixture,
   LocationChoice,
+  ReportId,
   RunEvent,
+  SortSubmission,
   UgcReport,
   Verdict,
   VerdictAttempt,
 } from '../contracts';
+import type { ActionJudge } from '../action-engine';
 import type { FixturePort } from '../fixture-port';
+import { SORT_LIMIT } from '../score-engine';
 import { deriveRounds, ENGINE_PENDING_LABEL, type RoundInfo } from '../config/rounds';
-
-/**
- * A 规则引擎消费签名（提案，待协商）：B 传提交上下文，A 返回完整 ActionAttempt
- * （status / reject_reason_code / reject_reason / attempt / completed_at_sim / resource_usage）。
- * 未接入时返回 null，B 记「待引擎接入」占位，绝不伪造 accepted/rejected。
- */
-export interface ActionSubmissionInput {
-  action_id: ActionId;
-  target_id: string;
-  submitted_at_sim: number;
-}
-export type ActionJudge = (input: ActionSubmissionInput) => ActionAttempt | null;
 
 export interface PendingActionSubmission {
   seq: number;
@@ -38,7 +29,8 @@ export interface PendingActionSubmission {
 export type LedgerEntry =
   | { kind: 'verdict'; event: Extract<RunEvent, { kind: 'verdict' }> }
   | { kind: 'action-pending'; submission: PendingActionSubmission }
-  | { kind: 'action-confirmed'; event: Extract<RunEvent, { kind: 'action' }> };
+  | { kind: 'action-confirmed'; event: Extract<RunEvent, { kind: 'action' }> }
+  | { kind: 'sort'; event: Extract<RunEvent, { kind: 'sort' }> };
 
 /** 自动推进的真实等待基准（毫秒）。只压缩真实等待，与 t_sim / duration_sim 无关。 */
 export const ROUND_BASE_WAIT_MS = 4000;
@@ -61,16 +53,19 @@ export function useDrillRound(
   const speeds = fixture.scenario.playback_speeds;
 
   const roundIndex = ref(0);
+  const furthestRoundIndex = ref(0);
   const currentRound = computed<RoundInfo | null>(() => rounds[roundIndex.value] ?? null);
   const currentT = computed(() => currentRound.value?.node.t_sim ?? 0);
   const canPrev = computed(() => roundIndex.value > 0);
   const canNext = computed(() => roundIndex.value < rounds.length - 1);
-  const sortOpen = computed(() => currentRound.value?.kind === 'final');
+  const finished = ref(false);
+  const canWrite = computed(() => !finished.value && roundIndex.value === furthestRoundIndex.value);
+  const sortOpen = computed(() => canWrite.value && currentRound.value?.kind === 'final');
 
   const speed = ref(speeds[0] ?? 1);
   const playing = ref(false);
 
-  const entries = ref<LedgerEntry[]>([]);
+  const entries = shallowRef<readonly LedgerEntry[]>([]);
   const nextSeq = ref(1);
   const deliveredIds = ref<Set<string>>(new Set());
   const lastBatch = ref<UgcReport[]>([]);
@@ -90,6 +85,7 @@ export function useDrillRound(
   function goToRound(index: number): void {
     const clamped = Math.min(Math.max(index, 0), rounds.length - 1);
     roundIndex.value = clamped;
+    furthestRoundIndex.value = Math.max(furthestRoundIndex.value, clamped);
     const round = rounds[clamped];
     if (round) deliverAt(round.node.t_sim);
     if (clamped >= rounds.length - 1) {
@@ -108,16 +104,16 @@ export function useDrillRound(
     if (index >= 0) goToRound(index);
   }
 
-  let playTimer: number | null = null;
+  let playTimer: ReturnType<typeof setInterval> | null = null;
   function stopPlayTimer(): void {
     if (playTimer !== null) {
-      window.clearInterval(playTimer);
+      clearInterval(playTimer);
       playTimer = null;
     }
   }
   function startPlayTimer(): void {
     stopPlayTimer();
-    playTimer = window.setInterval(() => {
+    playTimer = setInterval(() => {
       if (roundIndex.value >= rounds.length - 1) {
         playing.value = false;
         stopPlayTimer();
@@ -136,14 +132,14 @@ export function useDrillRound(
     if (playing.value) startPlayTimer();
   });
 
-  const startMark = performance.now();
-  const realTimer = window.setInterval(() => {
-    realElapsedMs.value = performance.now() - startMark;
+  let startMark = performance.now();
+  const realTimer = setInterval(() => {
+    if (!finished.value) realElapsedMs.value = performance.now() - startMark;
   }, 500);
-  if (getCurrentInstance()) {
-    onUnmounted(() => {
+  if (getCurrentScope()) {
+    onScopeDispose(() => {
       stopPlayTimer();
-      window.clearInterval(realTimer);
+      clearInterval(realTimer);
     });
   }
 
@@ -163,7 +159,7 @@ export function useDrillRound(
     verdict: Verdict,
     location: LocationChoice | null,
   ): VerdictAttempt | null {
-    if (!deliveredIds.value.has(reportId)) return null;
+    if (!canWrite.value || !deliveredReports.value.some((report) => report.id === reportId)) return null;
     const tSim = currentT.value;
     const seq = nextSeq.value;
     nextSeq.value += 1;
@@ -175,7 +171,7 @@ export function useDrillRound(
       location,
       supersedes_seq: latestVerdictSeq(reportId),
     };
-    entries.value.push({ kind: 'verdict', event: { seq, t_sim: tSim, kind: 'verdict', payload } });
+    entries.value = [...entries.value, { kind: 'verdict', event: { seq, t_sim: tSim, kind: 'verdict', payload } }];
     return payload;
   }
 
@@ -191,12 +187,28 @@ export function useDrillRound(
     return count;
   }
 
-  /**
-   * FR-4.7 / FR-4.3：submitted_at_sim = 当前节点；duration 读 ActionDef 固定常量。
-   * 对象按 target_kind 校验（A5→路段，其余→楼栋；路口不可作对象）。
-   * 合法性来自 A 引擎；未接入记 pending 占位，不伪造 accepted/rejected。
-   */
   function submitAction(actionId: ActionId, targetId: string): LedgerEntry | null {
+    if (!canWrite.value) return null;
+    const tSim = currentT.value;
+    const seq = nextSeq.value;
+    const judged = options?.judgeAction?.({
+      action_id: actionId,
+      target_id: targetId,
+      submitted_at_sim: tSim,
+      seq,
+      prior_events: currentEvents.value,
+    });
+    if (judged) {
+      const entry: LedgerEntry = {
+        kind: 'action-confirmed',
+        event: { seq, t_sim: tSim, kind: 'action', payload: judged },
+      };
+      entries.value = [...entries.value, entry];
+      nextSeq.value += 1;
+      return entry;
+    }
+
+    // 未接判定的诊断探针仍可记录 pending，并限制为可选对象。
     const def = fixture.action_catalog.find((action) => action.id === actionId);
     if (!def) return null;
     const targetOk =
@@ -205,21 +217,8 @@ export function useDrillRound(
         : port.map.road_segments.some((road) => road.id === targetId);
     if (!targetOk) return null;
 
-    const tSim = currentT.value;
-    const seq = nextSeq.value;
     nextSeq.value += 1;
     const attempt = actionAttemptCount(actionId, targetId) + 1;
-
-    const judged = options?.judgeAction?.({ action_id: actionId, target_id: targetId, submitted_at_sim: tSim }) ?? null;
-    if (judged) {
-      const payload: ActionAttempt = { ...judged, seq, attempt };
-      const entry: LedgerEntry = {
-        kind: 'action-confirmed',
-        event: { seq, t_sim: tSim, kind: 'action', payload },
-      };
-      entries.value.push(entry);
-      return entry;
-    }
 
     const submission: PendingActionSubmission = {
       seq,
@@ -231,22 +230,42 @@ export function useDrillRound(
       expected_completed_at_sim: tSim + def.duration_sim,
     };
     const entry: LedgerEntry = { kind: 'action-pending', submission };
-    entries.value.push(entry);
+    entries.value = [...entries.value, entry];
     return entry;
   }
 
-  /** 供 getScore 第二参数：只含已成形的流水记录；pending 提交尚未判定，不是流水事件。 */
+  function submitSort(orderedIds: readonly ReportId[]): SortSubmission | null {
+    if (!sortOpen.value || entries.value.some((entry) => entry.kind === 'sort')) return null;
+    const visibleIds = new Set(deliveredReports.value.map(({ id }) => id));
+    if (orderedIds.length !== Math.min(SORT_LIMIT, visibleIds.size) || orderedIds.length === 0 ||
+        new Set(orderedIds).size !== orderedIds.length || !orderedIds.every((id) => visibleIds.has(id))) return null;
+    const seq = nextSeq.value++;
+    const payload = { seq, t_sim: currentT.value, ordered_report_ids: [...orderedIds] };
+    entries.value = [...entries.value, { kind: 'sort', event: { seq, t_sim: currentT.value, kind: 'sort', payload } }];
+    return payload;
+  }
+
+  function finishDrill(): boolean {
+    if (!sortOpen.value) return false;
+    playing.value = false;
+    stopPlayTimer();
+    realElapsedMs.value = performance.now() - startMark;
+    finished.value = true;
+    return true;
+  }
+
+  /** 已确认事件供评分与复盘使用，诊断探针的 pending 提交除外。 */
   const currentEvents = computed<RunEvent[]>(() =>
     entries.value.flatMap((entry) =>
-      entry.kind === 'verdict' || entry.kind === 'action-confirmed' ? [entry.event] : [],
+      entry.kind === 'action-pending' ? [] : [entry.event],
     ),
   );
 
-  /** 展示集合随当前回合可见性回退（FR-4.1/VS-01）：回 scrub 到早期回合时，晚出现的线索重新隐藏。
-   *  deliveredIds 仍单调累计，仅用于做差投放与判读守卫，不决定展示。 */
+  /** 展示及判读守卫以当前回合可见性为准；deliveredIds 只用于计算新增批次。 */
   const deliveredReports = computed<UgcReport[]>(() => port.visibleReportsAt(currentT.value));
 
   function resetDrill(): void {
+    finished.value = false;
     playing.value = false;
     stopPlayTimer();
     entries.value = [];
@@ -254,6 +273,9 @@ export function useDrillRound(
     deliveredIds.value = new Set();
     speed.value = speeds[0] ?? 1;
     roundIndex.value = 0;
+    furthestRoundIndex.value = 0;
+    startMark = performance.now();
+    realElapsedMs.value = 0;
     const first = rounds[0];
     if (first) deliverAt(first.node.t_sim);
   }
@@ -268,6 +290,9 @@ export function useDrillRound(
     roundIndex,
     currentRound,
     currentT,
+    furthestRoundIndex,
+    canWrite,
+    finished,
     canPrev,
     canNext,
     sortOpen,
@@ -286,6 +311,8 @@ export function useDrillRound(
     togglePlay,
     submitVerdict,
     submitAction,
+    submitSort,
+    finishDrill,
     latestVerdictSeq,
     resetDrill,
   };

@@ -3,11 +3,11 @@ import type { ScoreResult } from '../contracts';
 import { SCORE_PENDING_TEXT } from '../fixture-port';
 
 defineProps<{ score: ScoreResult | null }>();
+const formatMetric = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format;
 </script>
 
 <template>
   <div class="score-panel">
-    <!-- 偏离基线 → null：只显示待接入常量，绝不回退基线分数 -->
     <div v-if="score === null" class="empty-state" id="score-pending">
       <svg class="es-icon" viewBox="0 0 16 16" aria-hidden="true">
         <circle cx="3" cy="8" r="2" />
@@ -17,18 +17,22 @@ defineProps<{ score: ScoreResult | null }>();
       <span>{{ SCORE_PENDING_TEXT }}</span>
     </div>
 
-    <!-- 完整匹配原始示例流水时才返回分数 -->
     <div v-else class="score-live" id="score-live">
       <div class="score-total ok">{{ score.total }}</div>
       <div class="score-metrics">
-        <span><span class="m-k">甄别</span> <span class="m-v">{{ score.discrimination }}</span></span>
-        <span><span class="m-k">响应</span> <span class="m-v">{{ score.response }}</span></span>
-        <span><span class="m-k">命中</span> <span class="m-v">{{ score.coverage }}</span></span>
-        <span><span class="m-k">违规</span> <span class="m-v">{{ score.violation }}</span></span>
+        <span><span class="m-k">甄别</span> <span class="m-v">{{ formatMetric(score.discrimination) }}</span></span>
+        <span><span class="m-k">响应</span> <span class="m-v">{{ formatMetric(score.response) }}</span></span>
+        <span><span class="m-k">命中</span> <span class="m-v">{{ formatMetric(score.coverage) }}</span></span>
+        <span><span class="m-k">违规</span> <span class="m-v">{{ formatMetric(score.violation) }}</span></span>
       </div>
-      <div class="score-detail">
-        违规明细读 <span class="mono">details.violation_event_seqs</span>：
-        <span class="mono">[{{ score.details.violation_event_seqs.join(', ') }}]</span>
+      <div class="score-detail" id="score-breakdown">
+        <div>判读正确 {{ score.details.correct_judgments }}/{{ score.details.total_reports }}</div>
+        <div v-if="score.details.response_seconds !== null">
+          首报 {{ score.details.first_real_report_id }} · 有效响应 {{ score.details.response_seconds }} 秒 · seq{{ score.details.first_response_action_seq }}
+        </div>
+        <div v-else>本轮无已完成的首报响应</div>
+        <div>标准动作命中权重 {{ score.details.coverage_hit_weights }}/{{ score.details.coverage_total_weights }}</div>
+        <div>重复违规 {{ score.details.violation_count }} 次 · 事件序号 [{{ score.details.violation_event_seqs.join(', ') }}]</div>
       </div>
     </div>
   </div>
