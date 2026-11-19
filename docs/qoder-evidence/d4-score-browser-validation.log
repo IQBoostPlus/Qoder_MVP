@@ -1,0 +1,13 @@
+Chrome 157.0.8103.79 production preview http://127.0.0.1:4175/
+375px 甲: 80/100/80/70 -> 83; 判读正确 8/10 | 首报 U1 · 有效响应 45 秒 · seq1 | 标准动作命中权重 8/10 | 重复违规 2 次 · 事件序号 [14, 20]
+375px feedback/review: U1 window + supersession, U4 location, past read-only, timer frozen, timeline complete, no horizontal overflow or covered score heading
+1440px 甲: 80/100/80/70 -> 83; 判读正确 8/10 | 首报 U1 · 有效响应 45 秒 · seq1 | 标准动作命中权重 8/10 | 重复违规 2 次 · 事件序号 [14, 20]
+1440px feedback/review: U1 window + supersession, U4 location, past read-only, timer frozen, timeline complete, no horizontal overflow or covered score heading
+375px 乙: 60/0/50/55 -> 44; 判读正确 6/10 | 首报 U1 · 有效响应 250 秒 · seq16 | 标准动作命中权重 5/10 | 重复违规 3 次 · 事件序号 [9, 14, 15]
+1440px 乙: 60/0/50/55 -> 44; 判读正确 6/10 | 首报 U1 · 有效响应 250 秒 · seq16 | 标准动作命中权重 5/10 | 重复违规 3 次 · 事件序号 [9, 14, 15]
+375px 甲 t=150 补 A4: 80/100/100/70 -> 90; 判读正确 8/10 | 首报 U1 · 有效响应 45 秒 · seq1 | 标准动作命中权重 10/10 | 重复违规 2 次 · 事件序号 [14, 20]
+1440px 甲 t=150 补 A4: 80/100/100/70 -> 90; 判读正确 8/10 | 首报 U1 · 有效响应 45 秒 · seq1 | 标准动作命中权重 10/10 | 重复违规 2 次 · 事件序号 [14, 20]
+375px 甲 t=100 补 A4: 80/100/80/70 -> 83; 判读正确 8/10 | 首报 U1 · 有效响应 45 秒 · seq1 | 标准动作命中权重 8/10 | 重复违规 2 次 · 事件序号 [15, 21]
+375px empty round: total 15, sort skipped; sample replay total 83; console warnings/errors 0; page errors 0
+1440px 甲 t=100 补 A4: 80/100/80/70 -> 83; 判读正确 8/10 | 首报 U1 · 有效响应 45 秒 · seq1 | 标准动作命中权重 8/10 | 重复违规 2 次 · 事件序号 [15, 21]
+1440px empty round: total 15, sort skipped; sample replay total 83; console warnings/errors 0; page errors 0

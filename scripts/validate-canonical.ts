@@ -10,6 +10,9 @@
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import assert from 'node:assert/strict';
+import { createActionJudge } from '../src/action-engine';
+import type { MapSource } from '../src/fixture-port';
 import type {
   ActionAttempt,
   ActionDef,
@@ -831,8 +834,39 @@ function validateClockChecks(): void {
 // 运行
 // ---------------------------------------------------------------------------
 
+function rejudgeCanonicalActions(): void {
+  const campus = JSON.parse(readFileSync(new URL('../fixtures/campus-map.json', import.meta.url), 'utf8')) as MapSource;
+  const judge = createActionJudge(fixture, campus);
+  fixture.runs = fixture.runs.map((run) => {
+    const events: RunEvent[] = [];
+    const resource_occupancy: ResourceUsage[] = [];
+    for (const event of run.events) {
+      if (!isActionEvent(event)) {
+        events.push(event);
+        continue;
+      }
+      const { reject_reason: previousReason, ...expected } = event.payload;
+      const judged = judge({
+        action_id: expected.action_id,
+        target_id: expected.target_id,
+        submitted_at_sim: event.t_sim,
+        seq: event.seq,
+        prior_events: events,
+      });
+      const { reject_reason: reason, ...actual } = judged;
+      assert.deepEqual(actual, expected, `${run.run_id} seq=${event.seq} D3 动作与 D1 基准不一致`);
+      assert.equal(Boolean(reason), Boolean(previousReason));
+      events.push({ ...event, payload: judged });
+      if (judged.resource_usage) resource_occupancy.push(judged.resource_usage);
+    }
+    console.log(`D3 rejudged ${run.run_id}: ${events.filter(isActionEvent).length} actions, ${resource_occupancy.length} resource intervals`);
+    return { ...run, events, resource_occupancy };
+  });
+}
+
 validateReferences();
 validateBuildingsProjection();
+if (process.argv.includes('--rejudge-actions')) rejudgeCanonicalActions();
 for (const run of fixture.runs) {
   validateAndReplayRun(run);
 }
@@ -851,7 +885,9 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log('D1 canonical fixture validation PASSED');
+console.log(process.argv.includes('--rejudge-actions')
+  ? 'D3 reconstructed canonical action and D1 reference score validation PASSED'
+  : 'D1 canonical fixture validation PASSED');
 console.log(
   `buildings=${fixture.buildings.length} junctions=${fixture.junctions.length} roads=${fixture.road_segments.length} reports=${fixture.ugc_reports.length} actions=${fixture.action_catalog.length} runs=${fixture.runs.length}`,
 );

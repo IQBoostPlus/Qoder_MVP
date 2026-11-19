@@ -13,7 +13,8 @@ import {
 } from '../fixture-port';
 import type { Building, Junction, Point, RoadHazard, RoadSegment, RunEvent, Verdict } from '../contracts';
 import { useFixtureData, useFixturePort } from '../composables/useFixturePort';
-import { useDrillRound, pendingActionText, type ActionJudge } from '../composables/useDrillRound';
+import { useDrillRound, pendingActionText } from '../composables/useDrillRound';
+import type { ActionJudge } from '../action-engine';
 import { CATEGORY_ORDER } from '../config/categories';
 import type { Selection } from '../config/layers';
 import { buildRouteQuery, endpointOptions, locationOptions, UNLOCATABLE } from '../config/route-query';
@@ -420,10 +421,11 @@ function resetAll(): void {
 const drillProbe = useDrillRound(fixture, port);
 
 // RE-01～05 渲染侧构造桩：模拟 A 引擎返回 rejected，验证 B 完整留痕并渲染拒绝原因。
-// 非临场引擎结果；真实合法性判定待 A 接入。顶层创建以复用组件卸载清理。
+// 构造桩专测渲染与接口留痕。生产推演使用真实规则。
 const rejectJudgeStub: ActionJudge = (input) => ({
-  seq: 0,
-  attempt: 0,
+  seq: input.seq,
+  attempt: 1 + input.prior_events.filter((event) => event.kind === 'action'
+    && event.payload.action_id === input.action_id && event.payload.target_id === input.target_id).length,
   action_id: input.action_id,
   target_id: input.target_id,
   submitted_at_sim: input.submitted_at_sim,

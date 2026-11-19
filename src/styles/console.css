@@ -970,12 +970,18 @@ table.data tbody tr:focus-visible { outline: 2px solid var(--amber); outline-off
 .round-controls .control { min-height: 44px; }
 .round-stats { margin: 0; font-size: 11.5px; color: var(--muted); }
 
-.drill-notice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.drill-notice .control { flex: 1 1 180px; min-width: 0; min-height: 44px; }
-.drill-notice select { flex: 1; min-width: 0; }
 
 .sort-gate { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line-soft); padding-top: 10px; }
-.sort-gate .btn { min-height: 44px; }
+.sort-gate .btn, .recap-controls .btn { min-height: 44px; }
+.sort-form, .drill-finish { display: grid; gap: 8px; min-width: 0; }
+.sort-form .control { min-width: 0; min-height: 44px; }
+.sort-form select { flex: 1; min-width: 0; }
+.finish-btn { border-color: var(--edge-blue); background: var(--blue-soft); color: var(--blue); }
+.round-feedback { padding: 8px 10px; border-left: 2px solid var(--edge-blue); background: var(--ink-900); }
+.round-feedback p { margin: 0; }
+.round-feedback p + p { margin-top: 4px; }
+.score-misses { margin: 0; padding-left: 1.35em; }
+.recap-controls { flex-wrap: wrap; }
 
 /* 账本在窄信息轨内：取消对象列最小宽，给状态列可读宽度，避免逐字竖排 */
 #ledger-table td.wrap { min-width: 0; }
@@ -1025,11 +1031,12 @@ table.data tbody tr:focus-visible { outline: 2px solid var(--amber); outline-off
   .mapwrap { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; gap: 8px; }
   .stage-col .map-stage { flex: none; }
   .map-stage { height: 46dvh; min-height: 260px; }
-  .rail { height: auto; overflow: visible; padding-right: 2px; }
+  .rail { --dock-clearance: 60px; height: auto; overflow: visible; padding-right: 2px; }
   .seg { display: flex; position: sticky; top: 0; z-index: 5; background: var(--ink-950); padding: 4px 0; }
   .rail-sec { display: none; }
   /* 详情与态势常驻，不参与舱切换（Q3：点选后必须立即可读）；推演页回合控制同样常驻 */
   .rail .sec-detail, .rail .sec-situation, .rail .sec-roundctl { display: flex; }
+  .rail .sec-round, .rail .sec-reports, .rail .sec-score { scroll-margin-block-start: var(--dock-clearance); }
   .rail[data-active='legend'] .sec-legend,
   .rail[data-active='time'] .sec-time,
   .rail[data-active='round'] .sec-round,
@@ -1057,6 +1064,7 @@ table.data tbody tr:focus-visible { outline: 2px solid var(--amber); outline-off
   table.data th, table.data td { padding: 5px 6px; }
   table.data td.wrap { min-width: 0; }
   .bld-meta { font-size: 10.5px; }
+  .rail { --dock-clearance: 112px; }
   .seg { flex-wrap: wrap; }
   .seg button { flex: 1 1 30%; }
   .layer-toggle { flex: 1 1 30%; justify-content: center; padding: 6px 8px; }

@@ -431,9 +431,11 @@ const hoverInfo = computed<{ title: string; tag: string; lines: string[] } | nul
     const d = props.overlay.disaster.find((m) => m.building_id === b.id);
     const c = props.overlay.cordons.find((m) => m.building_id === b.id);
     const r = props.overlay.rescues.find((m) => m.building_id === b.id);
+    const powerCut = props.overlay.powerCuts.find((m) => m.building_id === b.id);
     if (d) lines.push(`灾情：${d.title} @${d.at_sim}`);
     if (c) lines.push(cordonText(c));
     if (r) lines.push(rescueText(r));
+    if (powerCut) lines.push(`已断电 @${powerCut.at_sim}`);
     return { title: b.name, tag: '楼栋', lines };
   }
   if (h.kind === 'road') {
@@ -557,6 +559,7 @@ interface BuildingView {
   disasterAt: number | null;
   cordonLabel: string | null;
   rescueLabel: string | null;
+  powerCutAt: number | null;
   aria: string;
 }
 
@@ -696,6 +699,7 @@ function buildingModel(b: MapView['buildings'][number]): BuildingView {
   const disaster = props.layers.disaster ? props.overlay.disaster.find((m) => m.building_id === b.id) : undefined;
   const cordon = props.layers.cordon ? props.overlay.cordons.find((m) => m.building_id === b.id) : undefined;
   const rescue = props.layers.rescue ? props.overlay.rescues.find((m) => m.building_id === b.id) : undefined;
+  const powerCutAt = props.overlay.powerCuts.find((m) => m.building_id === b.id)?.at_sim ?? null;
   const floors = formatBuildingFloors(b);
   const roofTop = proj(c.x, c.y, mainH);
   return {
@@ -725,7 +729,8 @@ function buildingModel(b: MapView['buildings'][number]): BuildingView {
     disasterAt: disaster?.at_sim ?? null,
     cordonLabel: cordon ? cordonText(cordon) : null,
     rescueLabel: rescue ? rescueText(rescue) : null,
-    aria: `${b.name}，楼栋，${CATEGORY_STYLE[cat].label}，${floors}，估算容量${b.capacity}${b.risk_tag === null ? '' : `，风险${b.risk_tag}`}${disaster ? `，灾情：${disaster.title}` : ''}${cordon ? `，${cordonText(cordon)}` : ''}${rescue ? `，${rescueText(rescue)}` : ''}${isSelected('building', b.id) ? '，已选中' : ''}`,
+    powerCutAt,
+    aria: `${b.name}，楼栋，${CATEGORY_STYLE[cat].label}，${floors}，估算容量${b.capacity}${b.risk_tag === null ? '' : `，风险${b.risk_tag}`}${disaster ? `，灾情：${disaster.title}` : ''}${cordon ? `，${cordonText(cordon)}` : ''}${rescue ? `，${rescueText(rescue)}` : ''}${powerCutAt === null ? '' : `，已断电 @${powerCutAt}`}${isSelected('building', b.id) ? '，已选中' : ''}`,
   };
 }
 
@@ -944,7 +949,7 @@ const sceneObjects = computed<SceneObject[]>(() => {
 // ---- 应急指挥标记（覆盖层，不参与体量遮挡） ----
 interface MarkView {
   key: string;
-  type: 'disaster' | 'cordon' | 'rescue' | 'hazard' | 'closed';
+  type: 'disaster' | 'cordon' | 'rescue' | 'hazard' | 'closed' | 'powercut';
   x: number;
   y: number;
   dy: number;
@@ -958,6 +963,7 @@ const MARK_DY: Record<MarkView['type'], number> = {
   rescue: -52,
   hazard: 0,
   closed: -34,
+  powercut: -78,
 };
 const markViews = computed<MarkView[]>(() => {
   const out: MarkView[] = [];
@@ -973,6 +979,9 @@ const markViews = computed<MarkView[]>(() => {
     }
     if (bv.rescueLabel !== null) {
       push(`r-${bv.id}`, 'rescue', bv.markAnchor.x, bv.markAnchor.y, bv.rescueLabel, null);
+    }
+    if (bv.powerCutAt !== null) {
+      push(`p-${bv.id}`, 'powercut', bv.markAnchor.x, bv.markAnchor.y, `已断电 @${bv.powerCutAt}`, null);
     }
   }
   for (const rv of roadViews.value) {
@@ -1247,6 +1256,7 @@ const plinthDrop = computed(() => {
               <circle cx="0" cy="-20" r="8" class="mark-dot" />
               <path v-if="m.type === 'disaster' || m.type === 'hazard'" d="M 0 -24 L 0 -19 M 0 -16.5 L 0 -16" class="mark-glyph" />
               <path v-else-if="m.type === 'rescue'" d="M -3.5 -20 L 3.5 -20 M 0 -23.5 L 0 -16.5" class="mark-glyph" />
+              <path v-else-if="m.type === 'powercut'" d="M 1 -24 L -2 -19.5 L 1 -19.5 L -1 -16" class="mark-glyph" />
               <path v-else d="M -3.5 -20 L 3.5 -20 M -3.5 -23 L 3.5 -17" class="mark-glyph" />
               <rect :x="-m.pillW / 2" y="-46" :width="m.pillW" height="16" rx="4" class="mark-pill" />
               <text x="0" y="-34.5" text-anchor="middle">{{ m.text }}</text>
@@ -1295,6 +1305,7 @@ const plinthDrop = computed(() => {
       <span class="lg-item"><i class="lg-line lg-closed"></i>封闭</span>
       <span class="lg-item"><i class="lg-dot lg-cordon"></i>警戒</span>
       <span class="lg-item"><i class="lg-dot lg-rescue"></i>救援</span>
+      <span class="lg-item"><i class="lg-dot lg-powercut"></i>断电</span>
     </div>
 
     <div v-if="hoverInfo" class="map-hovercard" :style="hoverCardStyle" role="status">
@@ -1412,6 +1423,9 @@ const plinthDrop = computed(() => {
 .mark-rescue .mark-dot { fill: #4a7c59; }
 .mark-rescue .mark-glyph { stroke: #fbfaf6; stroke-width: 2.2; stroke-linecap: round; fill: none; }
 .mark-rescue text { fill: #38604a; }
+.mark-powercut .mark-dot { fill: #b04a3a; }
+.mark-powercut .mark-glyph { stroke: #fbfaf6; stroke-width: 2; stroke-linecap: round; fill: none; }
+.mark-powercut text { fill: #8f3527; }
 .mark-closed .mark-pill { stroke: #b3402e; }
 .mark-closed text { fill: #b3402e; font-family: var(--font-mono); }
 .barrier-glyph rect { fill: #b3402e; }
@@ -1471,6 +1485,7 @@ const plinthDrop = computed(() => {
 .lg-disaster { background: #2f6fb0; }
 .lg-cordon { background: #c07a2a; }
 .lg-rescue { background: #4a7c59; }
+.lg-powercut { background: #b04a3a; }
 .map-hovercard {
   position: absolute;
   z-index: 4;

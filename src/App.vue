@@ -15,12 +15,12 @@ const MODE_TITLE: Record<Mode, string> = {
   diag: '接口诊断台',
 };
 const MODE_SUB: Record<Mode, string> = {
-  drill: 'NJIT 江宁 · FIXTURE 骨架 · 本地账本 · 合法性待 A',
+  drill: 'NJIT 江宁 · 预置剧本，实时判定与评分',
   map: 'NJIT 江宁 · 训练地图与示例回放',
   diag: 'NJIT 江宁 · 引擎接口与测试数据',
 };
 const MODE_META: Record<Mode, string> = {
-  drill: 'D3 回合容器 + 时机框架 · 合法性待 A · 实时评分 D4',
+  drill: 'D4 学员流水与实时评分',
   map: 'D2 训练路网 · 阻断后自动改道',
   diag: 'D1～D3 接口核对',
 };
