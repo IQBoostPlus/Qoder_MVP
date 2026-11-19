@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import type { ActionId, LocationChoice, Verdict, VerdictAttempt } from '../contracts';
+import type { ActionId, LocationChoice, SortSubmission, Verdict, VerdictAttempt } from '../contracts';
 import { useFixturePort, useFixtureData } from '../composables/useFixturePort';
 import { useDrillRound, pendingActionText } from '../composables/useDrillRound';
 import { CATEGORY_STYLE, HAZARD_LABEL, formatBuildingFloors } from '../config/categories';
@@ -56,7 +56,7 @@ const overlay = computed(() => deriveLayerMarks(skeleton.value));
 // 评分恒带第二参数（本地账本）；偏离基线 → null → SCORE_PENDING_TEXT，不回退 expected_scores。
 const score = computed(() => port.getScore(skeletonRunId.value, drill.currentEvents.value));
 
-const dockTab = ref<'round' | 'reports' | 'roads' | 'route' | 'legend' | 'score'>('round');
+const dockTab = ref<'round' | 'actions' | 'feed' | 'reports' | 'roads' | 'route' | 'legend' | 'score'>('round');
 
 const hovered = ref<Selection | null>(null);
 const selected = ref<Selection | null>(null);
@@ -211,6 +211,17 @@ const ledgerRows = computed<LedgerRow[]>(() =>
         pending: true,
       };
     }
+    if (entry.kind === 'sort') {
+      const p = entry.event.payload;
+      return {
+        seq: p.seq,
+        kindLabel: '排序',
+        detail: `整批优先级 ${p.ordered_report_ids.join(' > ')}`,
+        stamp: p.t_sim,
+        state: '已提交 · 计分待引擎接入',
+        pending: true,
+      };
+    }
     const p = entry.event.payload;
     return {
       seq: p.seq,
@@ -226,13 +237,95 @@ const ledgerRows = computed<LedgerRow[]>(() =>
   }),
 );
 
-const sortNotice = ref(false);
-function openSort(): void {
-  if (sortOpen.value) sortNotice.value = true;
+// ---- D4：动作面板 ----
+const actionTarget = ref<Record<string, string>>({});
+function targetsFor(kind: 'building' | 'road'): { id: string; name: string }[] {
+  return kind === 'building'
+    ? map.buildings.map((b) => ({ id: b.id, name: b.name }))
+    : map.road_segments.map((r) => ({ id: r.id, name: r.name }));
 }
+function panelSubmit(actionId: ActionId): void {
+  const target = actionTarget.value[actionId];
+  if (!target) return;
+  drill.submitAction(actionId, target);
+}
+const pendingActions = computed(() =>
+  entries.value.flatMap((e) => (e.kind === 'action-pending' ? [e.submission] : [])),
+);
+const confirmedActions = computed(() =>
+  entries.value.flatMap((e) => (e.kind === 'action-confirmed' ? [e.event.payload] : [])),
+);
+
+// ---- D4：信息流（投放 / 路况 / 学员操作 合并时间线） ----
+type FeedKind = '投放' | '判读' | '动作' | '排序' | '路况';
+const feedFilter = ref<FeedKind | '全部'>('全部');
+const feedRows = computed<{ key: string; kind: FeedKind; stamp: number; text: string; pending: boolean }[]>(() => {
+  const rows: { key: string; kind: FeedKind; stamp: number; text: string; pending: boolean }[] = [];
+  for (const report of fixture.ugc_reports) {
+    if (report.appears_at_sim > currentT.value) continue;
+    rows.push({ key: `in-${report.id}`, kind: '投放', stamp: report.appears_at_sim, text: `${report.id} 出现 · ${report.text.slice(0, 26)}${report.text.length > 26 ? '…' : ''}`, pending: false });
+  }
+  for (const road of roads.value) {
+    if (road.hazard !== null && road.hazard_at_sim !== null && road.hazard_at_sim <= currentT.value) {
+      rows.push({ key: `hz-${road.road_id}`, kind: '路况', stamp: road.hazard_at_sim, text: `${road.name} · ${HAZARD_LABEL[road.hazard]}${road.formally_closed ? '' : '（未封闭）'}`, pending: false });
+    }
+    if (road.formally_closed && road.closed_at_sim !== null && road.closed_at_sim <= currentT.value) {
+      rows.push({ key: `cl-${road.road_id}`, kind: '路况', stamp: road.closed_at_sim, text: `${road.name} · 已封闭 seq${road.closed_by_action_seq}`, pending: false });
+    }
+  }
+  for (const row of ledgerRows.value) {
+    const kind: FeedKind = row.kindLabel === '判读' ? '判读' : row.kindLabel === '排序' ? '排序' : '动作';
+    rows.push({ key: `lg-${row.seq}`, kind, stamp: row.stamp, text: `${row.detail} · ${row.state}`, pending: row.pending });
+  }
+  rows.sort((a, b) => a.stamp - b.stamp || a.key.localeCompare(b.key));
+  return feedFilter.value === '全部' ? rows : rows.filter((r) => r.kind === feedFilter.value);
+});
+const FEED_KINDS: (FeedKind | '全部')[] = ['全部', '投放', '判读', '动作', '排序', '路况'];
+
+// ---- D4：末回合整批排序 ----
+const sortOrder = ref<string[]>([]);
+watch(sortOpen, (open) => {
+  if (open) sortOrder.value = drill.deliveredReports.value.map((r) => r.id);
+});
+watch(deliveredReports, (list) => {
+  if (sortOpen.value) sortOrder.value = list.map((r) => r.id);
+});
+function moveSort(id: string, dir: -1 | 1): void {
+  const i = sortOrder.value.indexOf(id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= sortOrder.value.length) return;
+  const next = [...sortOrder.value];
+  const a = next[i];
+  const b = next[j];
+  if (a === undefined || b === undefined) return;
+  next[i] = b;
+  next[j] = a;
+  sortOrder.value = next;
+}
+const lastSort = computed(() => {
+  let latest: SortSubmission | null = null;
+  for (const entry of entries.value) if (entry.kind === 'sort') latest = entry.event.payload;
+  return latest;
+});
+function submitSortNow(): void {
+  drill.submitSort(sortOrder.value);
+}
+function reportName(id: string): string {
+  return fixture.ugc_reports.find((r) => r.id === id)?.text.slice(0, 18) ?? id;
+}
+
+// ---- D4：双分支标准样例对照（示例回放，非临场） ----
+const branchScores = computed(() =>
+  runs.map((run) => {
+    const snap = port.replayTo(run.run_id, { t_sim: tEnd });
+    return { run, score: snap ? port.getScore(run.run_id, snap.events) : null };
+  }),
+);
 function resetDrill(): void {
   drill.resetDrill();
-  sortNotice.value = false;
+  sortOrder.value = [];
+  actionTarget.value = {};
+  feedFilter.value = '全部';
   drafts.value = {};
 }
 </script>
@@ -297,6 +390,8 @@ function resetDrill(): void {
     <aside class="rail" :data-active="dockTab">
       <div class="seg" role="tablist" aria-label="推演舱切换">
         <button :class="{ on: dockTab === 'round' }" @click="dockTab = 'round'">回合</button>
+        <button :class="{ on: dockTab === 'actions' }" @click="dockTab = 'actions'">动作</button>
+        <button :class="{ on: dockTab === 'feed' }" @click="dockTab = 'feed'">信息流</button>
         <button :class="{ on: dockTab === 'reports' }" @click="dockTab = 'reports'">上报</button>
         <button :class="{ on: dockTab === 'roads' }" @click="dockTab = 'roads'">道路</button>
         <button :class="{ on: dockTab === 'route' }" @click="dockTab = 'route'">路径</button>
@@ -402,10 +497,29 @@ function resetDrill(): void {
         <p v-else class="note">本会话暂无操作。在图上选楼栋 / 路段提交动作，或到「上报」页签判读；推进回合（无新事件）同样可行动（TC-07）。</p>
 
         <div class="sort-gate">
-          <button class="btn" id="sort-entry" :disabled="!sortOpen" @click="openSort">整批优先级排序（仅末回合）</button>
-          <p v-if="!sortOpen" class="note">末回合 t_end={{ tEnd }} 才开放（VS-03）；届时全部 {{ totalReports }} 条上报可见（VS-04）。</p>
-          <p v-else-if="sortNotice" class="note" id="sort-placeholder">入口已开放：选 3 条排序的完整交互属 D4，D3 只做门控占位，未实现排序提交。</p>
-          <p v-else class="note">末回合：排序入口开放，点击显示 D4 占位说明。</p>
+          <template v-if="!sortOpen">
+            <button class="btn" id="sort-entry" disabled>整批优先级排序（仅末回合）</button>
+            <p class="note">末回合 t_end={{ tEnd }} 才开放（VS-03）；届时全部 {{ totalReports }} 条上报可见（VS-04）。</p>
+          </template>
+          <template v-else>
+            <div class="rail-head"><span class="no">R3c</span><h2>整批优先级排序</h2><span class="sub">VS-04 · 仅末回合</span></div>
+            <p class="note">1 最紧急。用 ↑↓ 调整位次后提交；可改排重提，计分以提交时刻窗口为准（待 A 评分器）。</p>
+            <ol class="sort-list" id="sort-list">
+              <li v-for="(id, i) in sortOrder" :key="id">
+                <span class="sort-pos mono">{{ i + 1 }}</span>
+                <span class="sort-id mono">{{ id }}</span>
+                <span class="sort-text">{{ reportName(id) }}</span>
+                <span class="sort-moves">
+                  <button class="btn btn-sm" :disabled="i === 0" :aria-label="`上移 ${id}`" @click="moveSort(id, -1)">↑</button>
+                  <button class="btn btn-sm" :disabled="i === sortOrder.length - 1" :aria-label="`下移 ${id}`" @click="moveSort(id, 1)">↓</button>
+                </span>
+              </li>
+            </ol>
+            <button class="btn" id="sort-submit" @click="submitSortNow">提交排序</button>
+            <p v-if="lastSort" class="note mono" id="sort-last">
+              已提交 @{{ lastSort.t_sim }} · {{ lastSort.ordered_report_ids.join(' > ') }} · 计分待引擎接入
+            </p>
+          </template>
         </div>
 
         <div class="rail-head occ-head"><span class="no">R3b</span><h2>资源占用</h2><span class="sub">骨架 active @{{ currentT }}</span></div>
@@ -415,6 +529,78 @@ function resetDrill(): void {
           :active="skeleton?.active_resource_occupancy ?? []"
         />
         <p class="note">占用区间来自骨架快照；学员动作的占用与容量校验待 A 引擎判定后进入账本，界面只展示。</p>
+      </section>
+
+      <section class="rail-sec sec-actions">
+        <div class="rail-head"><span class="no">R4</span><h2>动作面板</h2><span class="sub">6 动作 · 合法性待 A</span></div>
+        <p class="note">提交时刻 = 当前节点 t_sim（FR-4.7）；时长读目录常量（FR-4.3）。前置条件与容量校验由 A 规则引擎判定，未接入前记「待引擎接入」，不伪造通过/拒绝。</p>
+        <ul class="action-cards">
+          <li v-for="def in fixture.action_catalog" :key="def.id" class="action-card">
+            <div class="action-head">
+              <span class="action-id mono">{{ def.id }}</span>
+              <span class="action-name">{{ def.name }}</span>
+              <span v-if="def.critical" class="badge badge-red badge-sm">关键</span>
+              <span class="action-dur mono">{{ def.duration_sim }}s</span>
+            </div>
+            <p class="action-pre">
+              对象：{{ def.target_kind === 'building' ? '楼栋' : '路段' }}
+              <template v-for="pre in def.preconditions" :key="pre.type"> · {{ pre.description }}</template>
+            </p>
+            <div class="controls">
+              <select v-model="actionTarget[def.id]" :aria-label="`${def.id} 对象`">
+                <option value="" disabled>选择对象</option>
+                <option v-for="t in targetsFor(def.target_kind)" :key="t.id" :value="t.id">{{ t.name }}</option>
+              </select>
+              <button class="btn" :disabled="!actionTarget[def.id]" @click="panelSubmit(def.id)">提交</button>
+            </div>
+            <p class="action-count mono">
+              本会话尝试 {{ drill.actionAttemptCount(def.id, actionTarget[def.id] ?? '') }} 次
+            </p>
+          </li>
+        </ul>
+        <div v-if="pendingActions.length" class="table-wrap">
+          <table class="data">
+            <thead><tr><th>seq</th><th>动作</th><th>对象</th><th class="th-amber">提交</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr v-for="s in pendingActions" :key="s.seq">
+                <td class="num">{{ s.seq }}</td>
+                <td class="mono">{{ s.action_id }}</td>
+                <td class="wrap">{{ endpointName(map, s.target_id) }}</td>
+                <td class="num cell-amber">{{ s.submitted_at_sim }}</td>
+                <td class="cell-amber">{{ pendingActionText(s, currentT) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-if="confirmedActions.length" class="table-wrap">
+          <table class="data">
+            <thead><tr><th>seq</th><th>动作</th><th>结果</th><th class="th-amber">完成</th><th>拒绝原因</th></tr></thead>
+            <tbody>
+              <tr v-for="p in confirmedActions" :key="p.seq">
+                <td class="num">{{ p.seq }}</td>
+                <td class="mono">{{ p.action_id }}</td>
+                <td :class="p.status === 'accepted' ? 'cell-green' : 'cell-red'">{{ p.status === 'accepted' ? '通过' : '拒绝' }}</td>
+                <td class="num cell-amber">{{ p.completed_at_sim ?? '—' }}</td>
+                <td class="wrap">{{ p.reject_reason ?? '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="rail-sec sec-feed">
+        <div class="rail-head"><span class="no">R5</span><h2>信息流</h2><span class="sub">合并时间线 @{{ currentT }}</span></div>
+        <div class="chip-row" role="group" aria-label="信息流过滤">
+          <button v-for="k in FEED_KINDS" :key="k" :class="{ on: feedFilter === k }" @click="feedFilter = k">{{ k }}</button>
+        </div>
+        <ul v-if="feedRows.length" class="feed-list" id="feed-list">
+          <li v-for="row in feedRows" :key="row.key" :class="{ pending: row.pending }">
+            <span class="feed-t mono">@{{ row.stamp }}</span>
+            <span class="feed-kind" :data-kind="row.kind">{{ row.kind }}</span>
+            <span class="feed-text">{{ row.text }}</span>
+          </li>
+        </ul>
+        <p v-else class="note">当前过滤下暂无事件；推进回合或切换过滤。</p>
       </section>
 
       <section class="rail-sec sec-reports">
@@ -565,6 +751,15 @@ function resetDrill(): void {
       <section class="rail-sec sec-score">
         <div class="rail-head"><span class="no">R8</span><h2>评分</h2><span class="sub">待 D4</span></div>
         <ScorePanel :score="score" />
+        <div class="rail-head occ-head"><span class="no">R8b</span><h2>双分支标准样例对照</h2><span class="sub">示例回放 · 非临场</span></div>
+        <ul class="branch-scores" id="branch-scores">
+          <li v-for="bs in branchScores" :key="bs.run.run_id">
+            <span class="branch-name">{{ bs.run.branch }}</span>
+            <span class="branch-id mono">{{ bs.run.run_id }}</span>
+            <span class="branch-total mono" :class="{ null: bs.score === null }">{{ bs.score === null ? '—' : bs.score.total }}</span>
+          </li>
+        </ul>
+        <p class="note">对照分来自各分支完整标准流水的 getScore（示例回放），供同剧本双分支里程碑核对；临场评分仍待 A 评分器，偏离基线即 null。</p>
         <p class="note">评分恒传本地账本第二参数：偏离基线 → null → 待接入常量，绝不回退基线分。实时评分里程碑属 D4；违规明细只读 ScoreResult.details.violation_event_seqs，呈现属 D4。</p>
       </section>
     </aside>

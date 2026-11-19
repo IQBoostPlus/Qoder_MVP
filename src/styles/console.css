@@ -695,12 +695,9 @@ input[type='range']::-moz-range-thumb {
   position: relative;
   min-height: 0;
   min-width: 0;
-  border: 1px solid var(--line);
+  border: 1px solid #c6c3bb;
   border-radius: var(--r-lg);
-  background:
-    radial-gradient(700px 380px at 30% 20%, var(--wash-blue), transparent 60%),
-    radial-gradient(600px 340px at 80% 85%, var(--wash-amber), transparent 60%),
-    var(--ink-950);
+  background: #cfcdc7;
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -709,13 +706,8 @@ input[type='range']::-moz-range-thumb {
 }
 .map-stage .campus-svg { width: 100%; height: 100%; min-width: 0; border: none; border-radius: var(--r-md); background: transparent; }
 
-/* 舞台四角框线：细线冷色，不与灾情/时钟抢注意力 */
-.stage-frame { position: absolute; inset: 8px; pointer-events: none; }
-.stage-frame i { position: absolute; width: 18px; height: 18px; border: 1.5px solid var(--line); }
-.stage-frame i:nth-child(1) { top: 0; left: 0; border-right: none; border-bottom: none; }
-.stage-frame i:nth-child(2) { top: 0; right: 0; border-left: none; border-bottom: none; }
-.stage-frame i:nth-child(3) { bottom: 0; left: 0; border-right: none; border-top: none; }
-.stage-frame i:nth-child(4) { bottom: 0; right: 0; border-left: none; border-top: none; }
+/* 舞台四角框线：实体沙盘方案下移除设备感框线 */
+.stage-frame { display: none; }
 
 /* HUD 叠层 */
 .hud { position: absolute; pointer-events: none; display: flex; flex-direction: column; gap: 3px; }
@@ -737,6 +729,29 @@ input[type='range']::-moz-range-thumb {
 .hud-line { font-family: var(--font-mono); font-size: 11.5px; color: var(--paper); }
 .hud-line .dim { color: var(--muted); }
 .hud-pill { display: inline-flex; gap: 6px; align-items: center; }
+
+/* 明亮沙盘上的舞台浮层：薄底浅卡 + 深墨字，红/橙/蓝只承担状态 */
+.map-stage .hud {
+  background: rgb(251 250 246 / 0.86);
+  border: 1px solid #d8d2c6;
+  border-radius: 10px;
+  padding: 8px 10px;
+  box-shadow: 0 2px 10px rgb(60 55 45 / 0.1);
+}
+.map-stage .hud-label { color: #6b6353; }
+.map-stage .hud-line { color: #33302a; }
+.map-stage .hud-line.dim, .map-stage .hud-line .dim { color: #6b6353; }
+.map-stage .hud-clock { color: #33302a; text-shadow: none; }
+.map-stage .hud-clock small { color: #6b6353; }
+.map-stage .badge-blue { color: #245a90; background: #e3ecf5; border-color: #b9cfe4; }
+.map-stage .badge-red { color: #a33524; background: #f5e3df; border-color: #e0b7ae; }
+
+/* 窄屏：沙盘浮层让位给模型本体，路况计数在情报轨仍有完整通路 */
+@media (max-width: 640px) {
+  .map-stage .hud-br { display: none; }
+  .map-orient .scalebar { display: none; }
+  .map-stage .hud-tr { display: none; }
+}
 
 /* 情报轨 */
 .rail {
@@ -1018,6 +1033,8 @@ table.data tbody tr:focus-visible { outline: 2px solid var(--amber); outline-off
   .rail[data-active='legend'] .sec-legend,
   .rail[data-active='time'] .sec-time,
   .rail[data-active='round'] .sec-round,
+  .rail[data-active='actions'] .sec-actions,
+  .rail[data-active='feed'] .sec-feed,
   .rail[data-active='reports'] .sec-reports,
   .rail[data-active='roads'] .sec-roads,
   .rail[data-active='route'] .sec-route,
@@ -1047,4 +1064,66 @@ table.data tbody tr:focus-visible { outline: 2px solid var(--amber); outline-off
   .round-tick { flex: 1 1 12%; min-width: 44px; }
   .verdict-controls .control { flex: 1 1 100%; }
   .verdict-controls .btn { flex: 1 1 100%; }
+}
+/* ---- D4：动作面板 / 信息流 / 末回合排序 / 双分支对照 ---- */
+.btn-sm { padding: 2px 8px; font-size: 12px; min-height: 26px; }
+.cell-green { background: var(--cell-blue); color: var(--green); }
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.chip-row button {
+  border: 1px solid var(--line); background: var(--ink-900); color: var(--muted);
+  border-radius: 999px; padding: 3px 12px; font-size: 12px; cursor: pointer;
+  font-family: var(--font-sans); transition: color 0.12s ease, border-color 0.12s ease;
+}
+.chip-row button:hover { color: var(--paper); border-color: var(--scroll-hover); }
+.chip-row button.on { color: var(--ink-950); background: var(--amber); border-color: var(--amber); font-weight: 600; }
+.action-cards { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 8px; margin: 8px 0; padding: 0; }
+.action-card {
+  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--row-wash);
+  padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; min-width: 0;
+}
+.action-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.action-id { color: var(--amber); font-weight: 700; }
+.action-name { color: var(--paper); font-weight: 600; font-size: 13px; flex: 1; min-width: 0; }
+.action-dur { color: var(--muted); font-size: 12px; }
+.action-pre { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+.action-count { margin: 0; color: var(--muted); font-size: 11px; }
+.action-card .controls { display: flex; gap: 6px; }
+.action-card select { flex: 1; min-width: 0; }
+/* 窄信息轨内的 pending/confirmed 表：状态与拒绝原因列允许换行，避免横向溢出 */
+.sec-actions .data td { white-space: normal; }
+.sec-actions .data td.wrap { min-width: 0; }
+.sort-list { list-style: none; margin: 8px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.sort-list li {
+  display: flex; align-items: center; gap: 8px; border: 1px solid var(--line);
+  border-radius: var(--r-sm); background: var(--row-wash); padding: 5px 8px;
+}
+.sort-pos {
+  flex: none; width: 22px; height: 22px; display: grid; place-items: center;
+  border-radius: 50%; background: var(--amber); color: var(--ink-950); font-weight: 700; font-size: 12px;
+}
+.sort-id { color: var(--amber); font-size: 12px; flex: none; }
+.sort-text { flex: 1; min-width: 0; color: var(--paper); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sort-moves { display: flex; gap: 4px; flex: none; }
+.feed-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 340px; overflow-y: auto; }
+.feed-list::-webkit-scrollbar { width: 8px; }
+.feed-list::-webkit-scrollbar-track { background: var(--ink-950); }
+.feed-list::-webkit-scrollbar-thumb { background: var(--line); border-radius: var(--r-sm); }
+.feed-list::-webkit-scrollbar-thumb:hover { background: var(--amber); }
+.feed-list li { display: flex; gap: 8px; align-items: baseline; border-left: 2px solid var(--line); padding: 3px 8px; background: var(--row-wash); border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+.feed-list li.pending { border-left-color: var(--amber); }
+.feed-t { color: var(--amber); font-size: 11.5px; flex: none; }
+.feed-kind { flex: none; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 8px; }
+.feed-kind[data-kind='判读'] { color: var(--blue); border-color: var(--edge-blue); }
+.feed-kind[data-kind='动作'] { color: var(--green); border-color: var(--edge-green); }
+.feed-kind[data-kind='排序'] { color: var(--amber); border-color: var(--edge-amber); }
+.feed-kind[data-kind='路况'] { color: var(--red); border-color: var(--edge-red); }
+.feed-text { color: var(--paper); font-size: 12px; line-height: 1.5; min-width: 0; }
+.branch-scores { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.branch-scores li { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: var(--r-sm); padding: 5px 8px; background: var(--row-wash); }
+.branch-name { color: var(--paper); font-weight: 600; font-size: 13px; flex: none; }
+.branch-id { color: var(--muted); font-size: 11px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.branch-total { color: var(--amber); font-size: 18px; font-weight: 700; flex: none; }
+.branch-total.null { color: var(--muted); }
+@media (max-width: 900px) {
+  .action-cards { grid-template-columns: 1fr; }
 }

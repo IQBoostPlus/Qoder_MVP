@@ -5,6 +5,7 @@ import type {
   CanonicalFixture,
   LocationChoice,
   RunEvent,
+  SortSubmission,
   UgcReport,
   Verdict,
   VerdictAttempt,
@@ -38,7 +39,8 @@ export interface PendingActionSubmission {
 export type LedgerEntry =
   | { kind: 'verdict'; event: Extract<RunEvent, { kind: 'verdict' }> }
   | { kind: 'action-pending'; submission: PendingActionSubmission }
-  | { kind: 'action-confirmed'; event: Extract<RunEvent, { kind: 'action' }> };
+  | { kind: 'action-confirmed'; event: Extract<RunEvent, { kind: 'action' }> }
+  | { kind: 'sort'; event: Extract<RunEvent, { kind: 'sort' }> };
 
 /** 自动推进的真实等待基准（毫秒）。只压缩真实等待，与 t_sim / duration_sim 无关。 */
 export const ROUND_BASE_WAIT_MS = 4000;
@@ -238,9 +240,27 @@ export function useDrillRound(
   /** 供 getScore 第二参数：只含已成形的流水记录；pending 提交尚未判定，不是流水事件。 */
   const currentEvents = computed<RunEvent[]>(() =>
     entries.value.flatMap((entry) =>
-      entry.kind === 'verdict' || entry.kind === 'action-confirmed' ? [entry.event] : [],
+      entry.kind === 'verdict' || entry.kind === 'action-confirmed' || entry.kind === 'sort'
+        ? [entry.event]
+        : [],
     ),
   );
+
+  /** FR-4.4 / VS-03：整批排序仅末回合开放；顺序须恰为当前可见上报全集，priority 由位次派生。 */
+  function submitSort(orderedReportIds: readonly string[]): SortSubmission | null {
+    if (!sortOpen.value) return null;
+    const visible = deliveredReports.value.map((report) => report.id);
+    if (orderedReportIds.length !== visible.length) return null;
+    const seen = new Set(orderedReportIds);
+    if (seen.size !== orderedReportIds.length) return null;
+    if (!visible.every((id) => seen.has(id))) return null;
+    const tSim = currentT.value;
+    const seq = nextSeq.value;
+    nextSeq.value += 1;
+    const payload: SortSubmission = { seq, t_sim: tSim, ordered_report_ids: [...orderedReportIds] };
+    entries.value.push({ kind: 'sort', event: { seq, t_sim: tSim, kind: 'sort', payload } });
+    return payload;
+  }
 
   /** 展示集合随当前回合可见性回退（FR-4.1/VS-01）：回 scrub 到早期回合时，晚出现的线索重新隐藏。
    *  deliveredIds 仍单调累计，仅用于做差投放与判读守卫，不决定展示。 */
@@ -286,6 +306,8 @@ export function useDrillRound(
     togglePlay,
     submitVerdict,
     submitAction,
+    submitSort,
+    actionAttemptCount,
     latestVerdictSeq,
     resetDrill,
   };

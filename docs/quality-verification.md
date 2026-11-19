@@ -12,10 +12,10 @@
 | --- | --- | --- | --- |
 | Q1 | Qoder Sites 公网部署、访问策略 public，无本地文件或压缩包依赖 | 无痕窗口 + 手机访问 | 待验 |
 | Q2 | 桌面 + 移动**控制台 0 报错** | DevTools + 真机，D7 起每轮回归 | D3 桌面 + 375 模拟器实测 0 error（§7）；真机与 D7 每轮回归待验 |
-| Q3 | 375px 宽下地图与信息流均可操作（上下分栏，非左右挤压） | iPhone SE / 375 模拟器实测 | D2/D3 实测通过（§7；D3 推演舱 scrollWidth=375 无横滚、触控 ≥44） |
+| Q3 | 375px 宽下地图与信息流均可操作（上下分栏，非左右挤压） | iPhone SE / 375 模拟器实测 | D2/D3/D4 实测通过（§7；D4 动作/信息流 dock 375 切换、6 卡单列、无横滚） |
 | Q4 | LLM 永不成为单点：Schema 约束 → 预算内重试 → 兜底剧本三级降级 | 手动断掉 Agent 调用仍能完成整轮 | 待验 |
 | Q5 | 每轮模型调用 **≤4 次**，**请求发出即计数**；「重新生成点评」受预算与原请求状态双重约束 | 计数器打印 + 构造预算耗尽场景 | 私有站顺序计数观测为 2/4；严格上限、发出后失败计数和并发原子性待验 |
-| Q6 | **分数随临场动作变化**，非预录流水 | 同一剧本补做一个动作，总分按规则改变 | 待验 |
+| Q6 | **分数随临场动作变化**，非预录流水 | 同一剧本补做一个动作，总分按规则改变 | 待验（D4 双分支对照 83/44/90 已实测但属示例回放；临场实时计算待 A 评分器，界面恒 null 不回退） |
 | Q7 | 训练定位三处可见：首屏声明 + 逐条上报徽标 + 页面水印 | 任意截图可自证 | D3 实测：首屏声明 + 逐条上报「训练模拟数据」徽标同屏（§7）；页面水印待走查 |
 | Q8 | 数据表结构 D2 结束前冻结，之后只加不改 | 变更需 A、B 共同确认 | D2 私有验证站八表冻结已验，[结构快照](qoder-evidence/D2-2026-11-18-schema-snapshot.json)已归档 |
 | Q9 | **Qoder 使用证据链**：每步留存于 `docs/qoder-evidence/` | 索引清单逐项核对 | 待验 |
@@ -29,7 +29,7 @@
 | T2 | 首屏 < 3 秒 | Lighthouse + 秒表 | 待填 |
 | T3 | 剧本生成 < 15 秒，等待有进度提示 | 秒表，重复 3 次取最差 | 待填 |
 | T4 | 复盘分数即时呈现，不受 AI 文案延迟影响 | 断网/慢网下结束推演，观察分数是否立即出现 | 待填 |
-| T5 | 键盘可操作动作按钮，颜色变化附文字，对比度 WCAG AA | 键盘走查 + 对比度工具 | D2/D3 实测通过（§7 双主题 AA；D3 时间轴/账本/上报卡新增组件复测全过） |
+| T5 | 键盘可操作动作按钮，颜色变化附文字，对比度 WCAG AA | 键盘走查 + 对比度工具 | D2/D3/D4 实测通过（§7 双主题 AA；D4 动作卡/信息流/排序/分支对照新增组件复测全过） |
 
 ### T1 测量协议（v4 修正）
 
@@ -211,10 +211,19 @@ v3 用「20～25 次点击」推算 3 分钟可达，**该推算不作为验收�
 | 2026-11-18 | D3 T5：新增组件双主题 AA + 键盘焦点环 | 通过（浏览器，window.__ratio alpha 合成）：ops 25 项 5.79～16.93、daylight 25 项 5.01～14.04 全 ≥4.5；焦点环 ops 2px rgb(255,178,36) / daylight 2px rgb(122,84,0)；press_key Tab/Space 真实 :focus-visible | 同上 §3.3 两表 | — |
 | 2026-11-18 | D3 Q7/Q10：逐条上报徽标 + 三入口模式区分 | 通过（浏览器截图自证）：上报卡仅 id/appears_at/text + 训练模拟数据徽标（不泄漏 category/event_truth/priority/judgment_windows）；drill「fixture 推演」/ map「示例回放」/ diag「构造/合成数据」徽标区分；页脚 PRECISION_NOTICE 同屏 | 同上 d3-desktop-drill-panorama.png | 页面水印待走查 |
 | 2026-11-18 | D3 基线回归 + D2 示例回放无回归 | 通过（CLI + 浏览器）：check:d1-v2 EXIT=0（83/44/90 未动）、typecheck/typecheck:app/build 全过（47 modules）；A 冻结文件零改动、MapView 未改 | 同上 §3.1、d3-d2-regression-map.png | — |
+| 2026-11-18 | D4 动作面板 R4：6 卡 + 对象按 target_kind + pending 占位 + 尝试计数 | 通过（浏览器复核）：A2→N7 账本 seq1 stamp30「待引擎接入 · 预计完成 @90」、尝试 1 次；pending/confirmed 表拒绝原因列只读引擎结果；未伪造 accepted/rejected | [`D4-2026-11-18-actions-feed-sort-branches.md`](qoder-evidence/D4-2026-11-18-actions-feed-sort-branches.md) §6.1、d4-action-cards.png | 动作真实合法性/拒绝/资源待 A 规则引擎 |
+| 2026-11-18 | D4 信息流 R5：投放/路况/学员操作合并时间线 + 过滤 | 通过（浏览器复核）：初始 1 行→提交动作 2 行；过滤「判读」=1；chips 六枚；按 stamp 排序、路况双态不合并 | 同上 §6.1、d4-feed-merged.png | — |
+| 2026-11-18 | D4 VS-03/VS-04 末回合排序交互：10 条重排 + 提交 + 改排重提 | 通过（浏览器复核）：t300 列表 10 条 + 位次 1～10；↑↓ 重排 U2>U8>U4>…（expected_sort 前三）；提交 seq3 @300、改排 seq4 @300、sort-last 取最新；非末回合门控禁用；计分待引擎接入 | 同上 §6.1、d4-sort-final-submitted.png | 排序计分待 A 评分器 |
+| 2026-11-18 | D4 评分诚实性：临场恒 null + 双分支对照 83/44/90（示例回放） | 通过（浏览器复核）：提交动作/判读/排序后临场仍「实时评分待引擎接入」；分支对照 83/44/90 带「示例回放 · 非临场」标签；getScore 恒带账本第二参数、不回退基线 | 同上 §6.1 | **Q6 实时计算里程碑待 A 评分器** |
+| 2026-11-18 | D4 重置：账本/排序/对象/过滤全清 | 通过（浏览器复核）：账本 0、sort-last 消失、sort-entry 重新禁用、回合回 1、A2 对象清空、feedFilter 回全部 | 同上 §6.1 | — |
+| 2026-11-18 | D4 桌面动作卡横溢缺陷修复 | 通过（浏览器复核）：原 1fr 1fr 在 374px 轨溢至 592px → 改 auto-fit minmax + min-width:0 + 表换行；复测 rail/cards/表 scrollW=clientW、doc 无横滚 | 同上 §6.2、d4-action-cards.png | — |
+| 2026-11-18 | D4 Q3/T5：375px dock 切换 + 新增组件双主题 AA | 通过（浏览器，同源 iframe）：375 动作/信息流 display:flex、6 卡单列 315px、chips 24px（AA 最小目标）、docScrollW=375；ops 21 项 5.02～16.06、daylight 21 项 4.73～14.04 全 ≥4.5 | 同上 §6.3、d4-375-actions.png、d4-daylight-actions.png | — |
+| 2026-11-18 | D4 门禁复跑 | 通过（CLI）：check:d2 EXIT=0（含 RE-06 真实 Dijkstra 改道）、typecheck:app EXIT=0、build 50 modules；83/44/90 未动 | 同上 §5 | A 的 D2 路由已落地；D3 规则引擎/D4 评分器仍待交付 |
 | 2026-11-18 | D3+ 地图 2.5D 精致化 + 视图交互（缩放/平移/hover/选中/图上圖例） | 通过（浏览器 + CLI）：真实点击路径点选/拖拽/双击复位/2.4× 缩放/hover 卡全验；375 scrollWidth=371、按钮 44×44；新增组件双主题 AA（ops 7.63～16.93 / daylight 5.01～13.30，zone 水印装饰豁免）；CD-04 20 栋零改动（viewBox 48 56 892 634）；示例回放标记无回归；控制台 0 error；check:d1-v2 仍全过 | [`D3-2026-11-18-map-25d-interaction-polish.md`](qoder-evidence/D3-2026-11-18-map-25d-interaction-polish.md) §3、d3-polish-*.png | 不改 A 冻结 footprint；真实非矩形轮廓与 20 栋选点待 A；高度仅层数视觉比例（CD-06） |
 | 2026-11-18 | A 轨 CD-01 / CD-04 / RE-06 完整地图与实际改道 | 通过（CLI + Chrome 1440px、375px）：20 栋、3 门、28 路；t=139 直达 120.0 px，t=140/164/165 经 N1 绕行 660.0 px；t=165 积水和正式封闭分列；CLI 验证全封闭不可达、恢复可达和 1×/4× 一致 | [D2 寻路与页面实测](qoder-evidence/D2-2026-11-18-routing-engine.md) | D3 接学员 A5 动作状态 |
 | 2026-11-18 | D2 八表迁移、结构冻结及地图往返 | 本地 PostgreSQL 与 Qoder Sites 私有验证站均通过。云端 20 栋、28 路段共 452 项字段检查无差异，3 门从 d2-1 地图解析 | [本地验证日志](qoder-evidence/d2-local-db-validation.log) · [云端验收](qoder-evidence/D2-2026-11-18-cloud-acceptance.md) | 后续结构变更按增量迁移核对 |
 | 2026-11-18 | D2 Agent 顺序复用 | 同一 Session 2 次接受、2 条回复，刷新后恢复，顺序重复提交和已完成请求恢复未增加模型调用，新任务获得独立 Session | [云端验收 §4](qoder-evidence/D2-2026-11-18-cloud-acceptance.md#4-agent-持久复用) | 真实断流、预算边界与并发原子性待验，平台配额未提供 |
+| 2026-11-18 | D4+ 沙盘重设计：实体比例模型视觉 + 交互/绑定不回归 | 通过（浏览器 + CLI）：20 栋/3 路口/110 树/10 草坪/3 广场实测计数；总览 6 地标标注、选中近景石墨檐口+地面环+rail 同步；t300 五枚指挥标记错叠可读 + ROAD STATUS 灾情1/封闭1；t30 marks=0；375 scrollWidth=375、hud-br/tr 隐藏、zoom 44×44；浅色 HUD/标注/标记对比度 5.19～12.16 全 ≥4.5；控制台 0 error；check:d1-v2/check:d2/typecheck:app/build 全过（83/44/90 未动）；零新依赖 | [`D4-2026-11-18-sandbox-architectural-model.md`](qoder-evidence/D4-2026-11-18-sandbox-architectural-model.md) §3、sandbox-model-*.png、[门禁日志](qoder-evidence/sandbox-model-gates.log) | 真实非矩形轮廓待 A；临场判定/评分仍待 A，未伪造 |
 | 2026-11-18 | D2 楼栋层数展示交接复核 | 通过（本地生产构建 + Chrome 1440px、375px）。推演与示例回放的地图标签、无障碍描述、清单及详情一致显示门诊部「未公开」、体育中心「通高」和北 7「5 层」 | [D2 交接收尾](qoder-evidence/D2-2026-11-18-routing-engine.md#交接收尾) | — |
 
 每条实测记录须按 [`docs/qoder-evidence/README.md`](qoder-evidence/README.md) 的约定留存凭证：想完成什么 / 在 Qoder 中做了什么 / 如何验证 + 对话与结果截图。纯 CLI 验证保存命令与完整输出作为等效凭证。
