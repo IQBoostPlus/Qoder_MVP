@@ -24,7 +24,7 @@ import { LAYER_ORDER, LAYER_STYLE } from '../config/layers';
         </span>
         <span class="legend-item">
           <span class="line-swatch closed"></span>
-          <span><b class="c-red">正式封闭</b>：A5 封路成功后红色路障，标注封闭时刻与动作 seq。两者可同时存在。</span>
+          <span><b class="c-red">正式封闭</b>：封路指令生效后显示红色路障，标注封闭时刻与对应操作。两者可同时存在。</span>
         </span>
         <span class="legend-item">
           <span class="gate-swatch"></span>
@@ -48,7 +48,7 @@ import { LAYER_ORDER, LAYER_STYLE } from '../config/layers';
       <div class="legend-items column">
         <span class="legend-item">
           <span class="route-swatch"><i></i></span>
-          <span><b>疏散路径</b>：亮色虚线 + 暗色包边，长度为图上 px（非实际距离或耗时）；引擎接入前显示待接入空态。</span>
+          <span><b>疏散路径</b>：亮色虚线 + 暗色包边，图上示意长度，非实际距离或耗时；引擎接入前显示待接入空态。</span>
         </span>
         <span class="legend-item">
           <span class="select-swatch">选中</span>
@@ -64,7 +64,7 @@ import { LAYER_ORDER, LAYER_STYLE } from '../config/layers';
 <style scoped>
 .legend { display: flex; flex-direction: column; gap: 12px; }
 .legend-group { display: flex; flex-direction: column; gap: 6px; }
-.legend-title { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; color: var(--muted); }
+.legend-title { font-size: 11px; font-weight: 650; color: var(--muted); }
 .legend-items { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .legend-items.column { flex-direction: column; gap: 8px; }
 .legend-item { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--paper); line-height: 1.5; }

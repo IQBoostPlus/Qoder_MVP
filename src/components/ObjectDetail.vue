@@ -5,6 +5,7 @@ import type { ActionDef, ActionId } from '../contracts';
 import { CATEGORY_STYLE, HAZARD_LABEL, formatBuildingFloors } from '../config/categories';
 import { cordonText, rescueText, type MapOverlay, type Selection } from '../config/layers';
 import { endpointName } from '../config/route-query';
+import { closedStamp, seqLabel, simStamp } from '../config/format';
 
 const props = defineProps<{
   selection: Selection | null;
@@ -93,11 +94,11 @@ const buildingMarks = computed(() => {
       <p class="detail-line">邻接楼栋：{{ adjacencyNames }}</p>
       <div class="detail-states">
         <p v-if="buildingMarks?.disaster" class="state-line c-blue">
-          灾情：{{ buildingMarks.disaster.title }} @{{ buildingMarks.disaster.at_sim }}
+          灾情：{{ buildingMarks.disaster.title }} {{ simStamp(buildingMarks.disaster.at_sim) }}
         </p>
-        <p v-if="buildingMarks?.cordon" class="state-line c-amber">{{ cordonText(buildingMarks.cordon) }} · seq{{ buildingMarks.cordon.seq }}</p>
-        <p v-if="buildingMarks?.rescue" class="state-line c-green">{{ rescueText(buildingMarks.rescue) }} · seq{{ buildingMarks.rescue.seq }}</p>
-        <p v-if="buildingMarks?.powerCut" class="state-line c-red">已断电 @{{ buildingMarks.powerCut.at_sim }} · seq{{ buildingMarks.powerCut.seq }}</p>
+        <p v-if="buildingMarks?.cordon" class="state-line c-amber">{{ cordonText(buildingMarks.cordon) }} · {{ seqLabel(buildingMarks.cordon.seq) }}</p>
+        <p v-if="buildingMarks?.rescue" class="state-line c-green">{{ rescueText(buildingMarks.rescue) }} · {{ seqLabel(buildingMarks.rescue.seq) }}</p>
+        <p v-if="buildingMarks?.powerCut" class="state-line c-red">已断电 {{ simStamp(buildingMarks.powerCut.at_sim) }} · {{ seqLabel(buildingMarks.powerCut.seq) }}</p>
         <p v-if="!buildingMarks?.disaster && !buildingMarks?.cordon && !buildingMarks?.rescue && !buildingMarks?.powerCut" class="state-line dim">
           当前时刻无灾情 / 警戒 / 救援队标记
         </p>
@@ -115,18 +116,18 @@ const buildingMarks = computed(() => {
         <span class="detail-name">{{ road.name }}</span>
         <span class="badge badge-red badge-sm">路段 · 已选中</span>
       </div>
-      <p class="detail-line mono">{{ road.id }} · {{ endpointName(map, road.from) }} → {{ endpointName(map, road.to) }}</p>
-      <p class="detail-line">图上长度 {{ map.road_lengths_px[road.id]?.toFixed(1) ?? '—' }} px（非实际距离）</p>
+      <p class="detail-line mono">{{ endpointName(map, road.from) }} → {{ endpointName(map, road.to) }}</p>
+      <p class="detail-line">图上示意长度，非实际距离或耗时</p>
       <div class="detail-states">
         <p class="state-line c-blue">
           自然灾情：
-          <template v-if="roadStatus?.hazard">{{ HAZARD_LABEL[roadStatus.hazard] }} @{{ roadStatus.hazard_at_sim }}</template>
+          <template v-if="roadStatus?.hazard">{{ HAZARD_LABEL[roadStatus.hazard] }} {{ roadStatus.hazard_at_sim === null ? '' : simStamp(roadStatus.hazard_at_sim) }}</template>
           <template v-else>无</template>
         </p>
         <p v-if="roadStatus?.hazard_description" class="state-line dim">{{ roadStatus.hazard_description }}</p>
         <p class="state-line c-red">
           正式封闭：
-          <template v-if="roadStatus?.formally_closed">已封闭 @{{ roadStatus.closed_at_sim }} · seq{{ roadStatus.closed_by_action_seq }}</template>
+          <template v-if="roadStatus?.formally_closed">已封闭 {{ closedStamp(roadStatus.closed_at_sim, roadStatus.closed_by_action_seq) }}</template>
           <template v-else>未封闭</template>
         </p>
         <p v-if="roadStatus?.block_reason" class="state-line dim">{{ roadStatus.block_reason }}</p>
@@ -136,14 +137,14 @@ const buildingMarks = computed(() => {
           v-if="roadStatus?.hazard_at_sim !== null && roadStatus?.hazard_at_sim !== undefined"
           class="btn"
           @click="emit('jump', roadStatus.hazard_at_sim)"
-        >跳到灾情时刻 @{{ roadStatus.hazard_at_sim }}</button>
+        >跳到灾情时刻 {{ simStamp(roadStatus.hazard_at_sim) }}</button>
         <button
           v-if="roadStatus?.closed_at_sim !== null && roadStatus?.closed_at_sim !== undefined"
           class="btn"
           @click="emit('jump', roadStatus.closed_at_sim)"
-        >跳到封闭时刻 @{{ roadStatus.closed_at_sim }}</button>
+        >跳到封闭时刻 {{ simStamp(roadStatus.closed_at_sim) }}</button>
       </div>
-      <p class="note">路段不可作为上报定位候选（JW-09）；「路段封闭」与「楼栋定位」是两个独立展示，互不覆盖（RE-07）。</p>
+      <p class="note">路段不能作为上报的定位对象；「路段封闭」和「楼栋定位」各自独立显示，互不覆盖。</p>
     </template>
 
     <!-- 路口 -->
@@ -168,7 +169,7 @@ const buildingMarks = computed(() => {
           <select v-model="actionChoice" :disabled="actionDisabled" aria-label="选择处置动作">
             <option value="" disabled>请选择</option>
             <option v-for="a in actionChoices" :key="a.id" :value="a.id">
-              {{ a.id }} {{ a.name }} · {{ a.duration_sim }}s
+              {{ a.name }} · 需 {{ a.duration_sim }} 秒
             </option>
           </select>
         </label>

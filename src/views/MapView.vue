@@ -13,6 +13,7 @@ import {
   type SelectionKind,
 } from '../config/layers';
 import { buildRouteQuery, endpointOptions, endpointName } from '../config/route-query';
+import { closedStamp, formatSimTime, simStamp } from '../config/format';
 import CampusMap from '../components/CampusMap.vue';
 import MapLegend from '../components/MapLegend.vue';
 import RoutePanel from '../components/RoutePanel.vue';
@@ -25,6 +26,10 @@ const fixture = useFixtureData();
 const map = port.map;
 
 const runs = fixture.runs;
+// 分支名为 fixture 原文，可能含动作编号；学员侧展示时按动作目录替换为动作名。
+function branchLabel(branch: string): string {
+  return branch.replace(/A\d+/g, (id) => fixture.action_catalog.find((a) => a.id === id)?.name ?? id);
+}
 const runId = ref(runs[0]?.run_id ?? '');
 const tEnd = fixture.scenario.t_end;
 const t = ref(tEnd);
@@ -55,6 +60,18 @@ const nodeTimes = [...new Set(fixture.scenario.nodes.map((n) => n.t_sim))].sort(
 // 140 / 164 / 165 非剧本节点成员，是道路双状态（积水→仍未封闭→正式封闭 seq17）的演示 affordance，
 // 单独成组并标注来源，D3 动作提交不得把它们当作可操作时刻。
 const demoTimes = [140, 164, 165];
+// 空态提示时刻派生自「确有标记的时刻」，避免文案硬编码节点时刻（CD-04）。
+const hintTimes = computed(() => {
+  const picked: number[] = [];
+  for (const time of [...nodeTimes, ...demoTimes]) {
+    const marks = deriveLayerMarks(port.replayTo(runId.value, { t_sim: time }));
+    if (marks.disaster.length + marks.cordons.length + marks.rescues.length + marks.powerCuts.length > 0) {
+      picked.push(time);
+      if (picked.length === 3) break;
+    }
+  }
+  return picked;
+});
 
 const snapshot = computed(() => port.replayTo(runId.value, { t_sim: t.value }));
 const roads = computed(() => snapshot.value?.roads ?? []);
@@ -93,11 +110,11 @@ const situation = computed<SituationEntry[]>(() => {
   const list: SituationEntry[] = [];
   if (layers.value.disaster) {
     for (const m of overlay.value.disaster) {
-      list.push({ key: `d-${m.building_id}`, color: 'var(--blue)', text: `${endpointName(map, m.building_id)} · 灾情：${m.title} @${m.at_sim}` });
+      list.push({ key: `d-${m.building_id}`, color: 'var(--blue)', text: `${endpointName(map, m.building_id)} · 灾情：${m.title} ${simStamp(m.at_sim)}` });
     }
     for (const r of roads.value) {
-      if (r.hazard !== null) {
-        list.push({ key: `h-${r.road_id}`, color: 'var(--blue)', text: `${r.name} · ${HAZARD_LABEL[r.hazard]} @${r.hazard_at_sim}${r.formally_closed ? '' : '（未封闭）'}` });
+      if (r.hazard !== null && r.hazard_at_sim !== null) {
+        list.push({ key: `h-${r.road_id}`, color: 'var(--blue)', text: `${r.name} · ${HAZARD_LABEL[r.hazard]} ${simStamp(r.hazard_at_sim)}${r.formally_closed ? '' : '（未封闭）'}` });
       }
     }
   }
@@ -113,7 +130,7 @@ const situation = computed<SituationEntry[]>(() => {
   }
   for (const r of roads.value) {
     if (r.formally_closed) {
-      list.push({ key: `x-${r.road_id}`, color: 'var(--red)', text: `${r.name} · 已封闭 @${r.closed_at_sim} · seq${r.closed_by_action_seq}` });
+      list.push({ key: `x-${r.road_id}`, color: 'var(--red)', text: `${r.name} · 已封闭 ${closedStamp(r.closed_at_sim, r.closed_by_action_seq)}` });
     }
   }
   return list;
@@ -168,19 +185,19 @@ function resetSample(): void {
         <div class="stage-frame"><i></i><i></i><i></i><i></i></div>
 
         <div class="hud hud-tl">
-          <span class="hud-label">SIM CLOCK</span>
-          <span class="hud-clock" id="snapshot-t">T+{{ snapshot?.t_sim ?? 0 }}<small>s</small></span>
-          <span class="hud-line"><span class="dim">分支</span> {{ currentRun?.branch }} <span class="dim">·</span> {{ runId }}</span>
+          <span class="hud-label">模拟时钟</span>
+          <span class="hud-clock" id="snapshot-t">T+{{ formatSimTime(snapshot?.t_sim ?? 0) }}</span>
+          <span class="hud-line"><span class="dim">分支</span> {{ currentRun ? branchLabel(currentRun.branch) : '' }}</span>
         </div>
 
         <div class="hud hud-tr">
-          <span class="hud-label">NETWORK</span>
+          <span class="hud-label">校园路网</span>
           <span class="hud-line" id="building-count">{{ map.buildings.length }} 栋 · {{ map.road_segments.length }} 路段 · {{ map.junctions.length }} 路口</span>
-          <span class="hud-line dim">viewBox {{ map.view_box_svg }}</span>
+          <span class="hud-line dim">点选楼栋 / 路段查看详情</span>
         </div>
 
         <div class="hud hud-br">
-          <span class="hud-label">ROAD STATUS</span>
+          <span class="hud-label">道路状态</span>
           <span class="hud-line hud-pill">
             <span class="badge badge-blue badge-sm">灾情 {{ hazardCount }}</span>
             <span class="badge badge-red badge-sm">封闭 {{ closedCount }}</span>
@@ -200,28 +217,28 @@ function resetSample(): void {
       </div>
 
       <section class="rail-sec sec-detail">
-        <div class="rail-head"><span class="no">00</span><h2>对象详情</h2><span class="sub">select</span></div>
+        <div class="rail-head"><h2>对象详情</h2><span class="sub">图上点选</span></div>
         <ObjectDetail :selection="selected" :map="map" :roads="roads" :overlay="overlay" @jump="jumpTo" @endpoint="setEndpoint" />
       </section>
 
       <section class="rail-sec sec-situation">
-        <div class="rail-head"><span class="no">01</span><h2>当前态势</h2><span class="sub">snapshot</span></div>
+        <div class="rail-head"><h2>当前态势</h2></div>
         <ul v-if="situation.length" class="situation-list">
           <li v-for="entry in situation" :key="entry.key">
             <span class="sit-dot" :style="{ background: entry.color }" aria-hidden="true"></span>
             <span>{{ entry.text }}</span>
           </li>
         </ul>
-        <p v-else class="note">当前时刻无灾情 / 警戒 / 救援队 / 封闭标记。试试 t=90 / 130 / 165。</p>
+        <p v-else class="note">当前时刻无灾情 / 警戒 / 救援队 / 封闭标记。<template v-if="hintTimes.length > 0">试试 {{ hintTimes.map((time) => simStamp(time)).join(' / ') }}。</template></p>
       </section>
 
       <section class="rail-sec sec-time">
-        <div class="rail-head"><span class="no">02</span><h2>时间轴 · 道路双状态</h2><span class="sub">replayTo</span></div>
+        <div class="rail-head"><h2>时间轴</h2><span class="sub">拖动或点时刻</span></div>
         <div class="controls">
           <label class="control">
             <span class="control-label">流水</span>
             <select v-model="runId" id="run-select" aria-label="选择推演流水">
-              <option v-for="r in runs" :key="r.run_id" :value="r.run_id">{{ r.branch }} · {{ r.run_id }}</option>
+              <option v-for="r in runs" :key="r.run_id" :value="r.run_id">{{ branchLabel(r.branch) }}</option>
             </select>
           </label>
           <button class="btn" id="reset-sample" @click="resetSample">载入原始示例</button>
@@ -229,32 +246,32 @@ function resetSample(): void {
         <div class="slider-block">
           <div class="slider-row">
             <input type="range" id="timeline" v-model.number="t" :min="0" :max="tEnd" :step="1" aria-label="模拟时刻" />
-            <span class="slider-value">{{ t }}s</span>
+            <span class="slider-value">{{ formatSimTime(t) }}</span>
           </div>
           <div class="chip-group">
             <span class="chip-group-label">剧本节点</span>
             <div class="node-chips">
-              <button v-for="time in nodeTimes" :key="time" class="chip" :class="{ active: t === time }" @click="setT(time)">{{ time }}</button>
+              <button v-for="time in nodeTimes" :key="time" class="chip" :class="{ active: t === time }" @click="setT(time)">{{ formatSimTime(time) }}</button>
             </div>
           </div>
           <div class="chip-group">
             <span class="chip-group-label">道路双状态演示时刻（非剧本节点）</span>
             <div class="node-chips">
-              <button v-for="time in demoTimes" :key="time" class="chip chip-demo" :class="{ active: t === time }" @click="setT(time)">{{ time }}</button>
+              <button v-for="time in demoTimes" :key="time" class="chip chip-demo" :class="{ active: t === time }" @click="setT(time)">{{ formatSimTime(time) }}</button>
             </div>
           </div>
         </div>
-        <div class="rail-head occ-head"><span class="no">02b</span><h2>资源占用</h2><span class="sub">active @{{ snapshot?.t_sim ?? 0 }}</span></div>
+        <div class="rail-head occ-head"><h2>资源占用</h2><span class="sub">{{ simStamp(snapshot?.t_sim ?? 0) }}</span></div>
         <OccupancyBars
           :resources="fixture.scenario.resources"
           :occupancy="snapshot?.resource_occupancy ?? []"
           :active="snapshot?.active_resource_occupancy ?? []"
         />
-        <p class="note">占用区间来自快照 resource_occupancy / active_resource_occupancy；容量校验由 A 的规则引擎负责，界面只展示。</p>
+        <p class="note">每支队伍此刻被占用的时段；还能不能再派，由引擎判定，这里只展示。</p>
       </section>
 
       <section class="rail-sec sec-roads">
-        <div class="rail-head"><span class="no">03</span><h2>道路双状态</h2><span class="sub">RoadStatus</span></div>
+        <div class="rail-head"><h2>道路状态</h2><span class="sub">自然灾情 / 正式封闭</span></div>
         <div class="table-wrap">
           <table class="data" id="roads-table">
             <thead>
@@ -277,26 +294,26 @@ function resetSample(): void {
                     @blur="hovered = null"
                     @click.stop="toggleSelect('road', rs.road_id)"
                   >
-                    <span class="mono">{{ rs.road_id }}</span><br />{{ rs.name }}
+                    {{ rs.name }}
                   </button>
                 </td>
                 <td class="cell-blue">
-                  <template v-if="rs.hazard !== null">{{ HAZARD_LABEL[rs.hazard] }} @{{ rs.hazard_at_sim }}</template>
+                  <template v-if="rs.hazard !== null">{{ HAZARD_LABEL[rs.hazard] }} {{ rs.hazard_at_sim === null ? '' : simStamp(rs.hazard_at_sim) }}</template>
                   <template v-else>—</template>
                 </td>
                 <td class="cell-red">
-                  <template v-if="rs.formally_closed">已封闭 @{{ rs.closed_at_sim }} · seq{{ rs.closed_by_action_seq }}</template>
+                  <template v-if="rs.formally_closed">已封闭 {{ closedStamp(rs.closed_at_sim, rs.closed_by_action_seq) }}</template>
                   <template v-else>未封闭</template>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p class="note">状态来自 replayTo(...).roads，非 road.blocked；随时间轴实时变化，两者可叠加。点行或路段名选中，详情见「对象详情」。</p>
+        <p class="note">自然灾情和正式封闭是两件事，可以同时存在，都随时间轴变化。点路段名可在图上选中。</p>
       </section>
 
       <section class="rail-sec sec-route">
-        <div class="rail-head"><span class="no">04</span><h2>路径查询</h2><span class="sub">getRoute</span></div>
+        <div class="rail-head"><h2>路径查询</h2><span class="sub">起终点自选</span></div>
         <div class="controls route-controls">
           <label class="control">
             <span class="control-label">起点</span>
@@ -314,16 +331,16 @@ function resetSample(): void {
         </div>
         <div v-if="degenerate" class="alert-error" id="route-degenerate">起点与终点相同，已禁用查询；请另选终点。</div>
         <RoutePanel :route="route" :query="routeQuery" :map="map" :roads="roads" />
-        <p class="note">端点候选 = 楼栋 + 路口（路口标注非楼栋）；上报定位候选另为楼栋 + 「无法定位」，不含路段与路口（JW-09）。长度口径为图上 px，非实际距离或耗时。</p>
+        <p class="note">起终点可选楼栋或路口（路口会标明非楼栋）；上报定位只能选楼栋或「无法定位」。长度是图上距离，不是实际米数或耗时。</p>
       </section>
 
       <section class="rail-sec sec-legend">
-        <div class="rail-head"><span class="no">05</span><h2>图例</h2><span class="sub">legend</span></div>
+        <div class="rail-head"><h2>图例</h2></div>
         <MapLegend />
         <div class="bld-index">
           <div class="bld-index-head">
             <span class="bld-title">楼栋清单</span>
-            <span class="bld-count mono">{{ map.buildings.length }} 栋</span>
+            <span class="bld-count">{{ map.buildings.length }} 栋</span>
           </div>
           <ul class="bld-list">
             <li v-for="b in map.buildings" :key="b.id">
@@ -351,7 +368,7 @@ function resetSample(): void {
                     }}<template v-if="b.risk_tag !== null"> · <span class="risk">▲ {{ b.risk_tag }}</span></template>
                   </span>
                 </span>
-                <span class="bld-meta mono">{{ formatBuildingFloors(b) }} · ≈{{ b.capacity }}</span>
+                <span class="bld-meta">{{ formatBuildingFloors(b) }} · ≈{{ b.capacity }}</span>
               </button>
             </li>
           </ul>
@@ -360,9 +377,9 @@ function resetSample(): void {
       </section>
 
       <section class="rail-sec sec-score">
-        <div class="rail-head"><span class="no">06</span><h2>评分</h2><span class="sub">{{ currentRun?.branch }}</span></div>
+        <div class="rail-head"><h2>评分</h2><span class="sub">{{ currentRun ? branchLabel(currentRun.branch) : '' }}</span></div>
         <ScorePanel :score="score" />
-        <p class="note">评分恒传当前流水第二参数：完整匹配原始示例显示分数；偏离后 null 显示待接入常量，绝不回退基线。</p>
+        <p class="note">分数按当前时间轴上的操作记录计算；记录与示例不一致时显示待接入提示，不会套用示例分数。</p>
       </section>
     </aside>
   </section>

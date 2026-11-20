@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watchEffect } from 'vue';
+import { ref, watchEffect } from 'vue';
 import MapView from './views/MapView.vue';
 import DrillView from './views/DrillView.vue';
 import DiagnosticView from './views/DiagnosticView.vue';
@@ -8,101 +8,66 @@ import { DRILL_MODE_BADGE } from './config/rounds';
 
 type Mode = 'drill' | 'map' | 'diag';
 const tab = ref<Mode>('drill');
-
-const MODE_TITLE: Record<Mode, string> = {
-  drill: '推演舱',
-  map: '指挥舱 · 示例回放',
-  diag: '接口诊断台',
-};
-const MODE_SUB: Record<Mode, string> = {
-  drill: 'NJIT 江宁 · 预置剧本，实时判定与评分',
-  map: 'NJIT 江宁 · 训练地图与示例回放',
-  diag: 'NJIT 江宁 · 引擎接口与测试数据',
-};
-const MODE_META: Record<Mode, string> = {
-  drill: 'D4 学员流水与实时评分',
-  map: 'D2 训练路网 · 阻断后自动改道',
-  diag: 'D1～D3 接口核对',
-};
-const modeTitle = computed(() => MODE_TITLE[tab.value]);
-const modeSub = computed(() => MODE_SUB[tab.value]);
-const modeMeta = computed(() => MODE_META[tab.value]);
-
-const THEME_KEY = 'campus-drill-theme';
-const theme = ref<'ops' | 'daylight'>(localStorage.getItem(THEME_KEY) === 'daylight' ? 'daylight' : 'ops');
+const modeNames: Record<Mode, string> = { drill: '推演', map: '示例回放', diag: '接口诊断' };
+const themeKey = 'campus-training-theme';
+const theme = ref<'ops' | 'daylight'>(localStorage.getItem(themeKey) === 'ops' ? 'ops' : 'daylight');
 watchEffect(() => {
   document.documentElement.dataset.theme = theme.value;
-  localStorage.setItem(THEME_KEY, theme.value);
+  localStorage.setItem(themeKey, theme.value);
 });
 watchEffect(() => {
-  document.title = `校园应急桌面推演 · ${modeTitle.value}`;
+  document.title = `${modeNames[tab.value]} · 校园应急推演`;
 });
-function toggleTheme(): void {
-  theme.value = theme.value === 'ops' ? 'daylight' : 'ops';
-}
 </script>
 
 <template>
-  <div class="deck">
-    <header class="topbar">
-      <div class="brand">
-        <h1 class="brand-title">校园应急桌面推演 <span class="accent">· {{ modeTitle }}</span></h1>
-        <span class="brand-sub">{{ modeSub }}</span>
+  <div class="deck app-shell" :class="`app-mode-${tab}`">
+    <a class="app-skip" href="#main-content">跳到主要内容</a>
+    <header class="app-header">
+      <div class="app-identity">
+        <svg class="app-mark" viewBox="0 0 40 40" aria-hidden="true">
+          <path d="M9 25.5 20 19l11 6.5L20 32 9 25.5Z M9 19l11-6.5L31 19 20 25.5 9 19Z M9 12.5 20 6l11 6.5L20 19 9 12.5Z" />
+        </svg>
+        <div>
+          <h1>校园应急推演</h1>
+          <span>南京工程学院</span>
+        </div>
       </div>
-      <nav class="topnav" aria-label="模式切换">
-        <button class="btn" :class="{ 'btn-primary': tab === 'drill' }" @click="tab = 'drill'">推演</button>
-        <button class="btn" :class="{ 'btn-primary': tab === 'map' }" @click="tab = 'map'">示例回放</button>
-        <button class="btn" :class="{ 'btn-primary': tab === 'diag' }" @click="tab = 'diag'">接口诊断</button>
+      <nav class="app-nav" aria-label="模式切换">
+        <button v-for="(label, mode) in modeNames" :key="mode" type="button"
+          :aria-pressed="tab === mode" @click="tab = mode">{{ label }}</button>
       </nav>
-      <button
-        class="btn theme-toggle"
-        id="theme-toggle"
-        :aria-pressed="theme === 'daylight'"
-        aria-label="切换配色主题"
-        @click="toggleTheme"
-      >
-        <span class="orb" aria-hidden="true"></span>{{ theme === 'ops' ? '教室投影' : '夜航指挥' }}
-      </button>
-      <!-- 徽标按模式诚实区分：推演不标「示例回放」也不宣称实时评分（Q10 / FR-8.3） -->
-      <div class="topbar-badges">
-        <span v-if="tab === 'drill'" class="badge badge-blue" id="badge-drill">{{ DRILL_MODE_BADGE }}</span>
-        <span v-else-if="tab === 'map'" class="badge badge-amber" id="badge-replay">示例回放</span>
-        <span v-else class="badge badge-muted" id="badge-diag">构造 / 合成数据</span>
-        <span class="badge badge-red" id="badge-training">训练模拟数据</span>
+      <div class="app-header-tools">
+        <span class="training-label" id="badge-training">训练模拟数据</span>
+        <button type="button" class="btn theme-toggle" id="theme-toggle"
+          @click="theme = theme === 'daylight' ? 'ops' : 'daylight'">
+          {{ theme === 'daylight' ? '夜间配色' : '浅色配色' }}
+        </button>
       </div>
     </header>
 
-    <!-- 首屏精度声明（逐字常量） -->
-    <div class="ribbon" id="first-screen-notice">
-      <span class="ribbon-tag">精度声明</span>
-      <p class="ribbon-text">{{ PRECISION_NOTICE }}</p>
+    <div class="app-notice" id="first-screen-notice">
+      <strong>精度声明</strong>
+      <p>{{ PRECISION_NOTICE }}</p>
     </div>
 
-    <main class="deck-main">
-      <DrillView v-if="tab === 'drill'" />
-      <MapView v-else-if="tab === 'map'" />
-      <div v-else class="diag-scroll">
-        <div class="shell">
-          <DiagnosticView />
-        </div>
+    <main class="deck-main app-content" id="main-content" tabindex="-1">
+      <KeepAlive>
+        <DrillView v-if="tab === 'drill'" />
+      </KeepAlive>
+      <MapView v-if="tab === 'map'" />
+      <div v-if="tab === 'diag'" class="diag-scroll">
+        <div class="shell"><DiagnosticView /></div>
       </div>
     </main>
 
-    <!-- 页脚：同一声明 + 模式徽标同屏 -->
-    <footer class="statusbar" id="map-footer-notice">
-      <div class="statusbar-badges">
-        <span v-if="tab === 'drill'" class="badge badge-blue">{{ DRILL_MODE_BADGE }}</span>
-        <span v-else-if="tab === 'map'" class="badge badge-amber">示例回放</span>
-        <span v-else class="badge badge-muted">构造 / 合成数据</span>
-        <span class="badge badge-red">训练模拟数据</span>
-      </div>
-      <p class="statusbar-notice">{{ PRECISION_NOTICE }}</p>
-      <p class="statusbar-meta">fixtures/canonical-run.json · fixture-port.ts<br />{{ modeMeta }}</p>
+    <footer class="app-footer" id="map-footer-notice">
+      <span v-if="tab === 'drill'" id="badge-drill">{{ DRILL_MODE_BADGE }}</span>
+      <span v-else-if="tab === 'map'" id="badge-replay">示例回放</span>
+      <span v-else id="badge-diag">构造与合成数据</span>
+      <p>{{ PRECISION_NOTICE }}</p>
     </footer>
+
+    <div class="training-watermark" id="page-watermark" aria-hidden="true">训练模拟数据</div>
   </div>
 </template>
-
-<style scoped>
-.topnav { display: flex; gap: 8px; }
-.topnav .btn { min-height: 44px; padding: 6px 14px; }
-</style>

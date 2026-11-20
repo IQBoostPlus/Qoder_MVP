@@ -1,0 +1,168 @@
+# B 轨独立复验 · 浏览器实测输出（2026-11-19）
+
+环境：Qoder 内置浏览器面板（Chromium），dev server http://127.0.0.1:5173/，
+合并提交 9775ccc + 未提交的 B 集成改动（DrillView 面板 / CampusMap 断电标记与标记防挤）。
+驱动方式：脚本按 fixtures/canonical-run.json 的事件序列操作**真实页面控件**
+（回合刻度按钮、上报卡判读/定位 select + 记录按钮、动作面板 select + 提交、排序三选 + 提交排序、结束推演），
+分数读取自页面 #score-live / #score-breakdown，非直接调用引擎。
+每次 evaluate_script 有 15s 上限，故分路径执行；辅助函数挂在 window.__b。
+
+## 1. 四条路径 · 临场评分（port.scoreRound）
+
+### 甲（run-jia-1x，21 事件）
+ledgerRows = 21
+total = 83，metrics = [80, 100, 80, 70]
+breakdown = 判读正确 8/10 | 首报 U1 · 有效响应 45 秒 · seq1 | 标准动作命中权重 8/10 | 重复违规 2 次 · 事件序号 [14, 20]
+location = 定位 10/10 · 单独统计
+sort = 排序正确 | 提交 U2 → U8 → U4 | 参考 U2 → U8 → U4
+expected（fixture）= total 83，metrics [80,100,80,70] → 一致
+
+### 甲补做 A4@150（run-jia-plus-a4，22 事件）
+ledgerRows = 22
+total = 90，metrics = [80, 100, 100, 70]
+breakdown = 判读正确 8/10 | 首报 U1 · 有效响应 45 秒 · seq1 | 标准动作命中权重 10/10 | 重复违规 2 次 · 事件序号 [14, 21]
+location = 定位 10/10 · 单独统计
+sort = 排序正确 | 提交 U2 → U8 → U4 | 参考 U2 → U8 → U4
+expected（fixture）= total 90，metrics [80,100,100,70] → 一致
+
+### 乙（run-yi-1x，18 事件）
+ledgerRows = 18
+total = 44，metrics = [60, 0, 50, 55]
+breakdown = 判读正确 6/10 | 首报 U1 · 有效响应 250 秒 · seq16 | 标准动作命中权重 5/10 | 重复违规 3 次 · 事件序号 [9, 14, 15]
+location = 定位 9/10 · 单独统计
+sort = 排序正确 | 提交 U2 → U8 → U4 | 参考 U2 → U8 → U4
+expected（fixture）= total 44，metrics [60,0,50,55] → 一致
+
+### 甲 + 早 A4@100（在时序内插入，非末尾追加）
+**第一次尝试无效并已作废**：把 extra 事件放在 run.events 之后执行，会先跳到 T+300 再回跳 T+100，
+此时 roundIndex < furthestRoundIndex → canWrite=false → submitAction 返回 null，
+账本仍 21 行、违规序号仍 [14,20]，等于重跑了一遍甲。该次结果不计入验证。
+**修正后**：把 extra 按 t_sim 归并排序插入到 T+100 位置再回放。
+ledgerRows = 22
+A4 账本行 = [11, 动作, "A4 广播疏散 → 萃园 7 幢（北 7） · 第1次", 100,
+            "已拒绝 · PRECONDITION_NOT_MET 同楼栋 A3 警戒必须先完成"]
+动作面板 A4 卡：已尝试 1 次；表格行 [11, 1, 已拒绝, PRECONDITION_NOT_MET 同楼栋 A3 警戒必须先完成]
+#action-feedback 同文；无 alert-error（引擎返回 rejected 而非抛错）
+total = 83，metrics = [80, 100, 80, 70]
+breakdown = 判读正确 8/10 | 首报 U1 · 有效响应 45 秒 · seq1 | 标准动作命中权重 8/10 | 重复违规 2 次 · 事件序号 [15, 21]
+（插入一个占 seq 的拒绝后，后续序号整体 +1，违规引用随之变为 [15,21]；总分与命中不变）
+location = 定位 10/10 · 单独统计；sort = 排序正确 U2 → U8 → U4
+
+## 2. D3 语义 · A5 封路 / 道路双态 / 路径改道
+
+提交：T+140 动作面板 A5 → R-N7E
+#action-feedback = "A5 封路 → R-N7E · 第1次 · 已通过 · 进行中 · 预计 @165"
+T+140 道路表 R-N7E = ["北 7 东侧至 3 号门", "积水 @140", "未封闭"]
+
+路径 GATE3 → N7（R-N7E 是 3 号门的唯一直接连接）：
+- T+130（灾情前）：ready，1 段，图上长度 **120.0 px**，经 R-N7E
+- T+150（积水已现、A5 未完成）：ready，2 段，图上长度 **660.0 px**，
+  经 R-N1-GATE3（北 1 至 3 号门·训练备用道路）+ R-N7-N1；道路表仍「未封闭」
+- T+220（A5 已完成）：ready，2 段，**660.0 px**，同改道；
+  道路表 = ["北 7 东侧至 3 号门", "积水 @140", "已封闭 @165 · seq1"]
+  当前态势含 "北 7 东侧至 3 号门 · 已封闭 @165 · seq1"
+结论：自然灾情（hazard）与正式封闭（blocked）分别驱动改道，双态不合并。
+query 提示恒为「携带 28 条快照路段状态（blocked / hazard 分开传递）」。
+
+### 2b. 封闭无灾情的备用路 → 真实不可达（复现 A 轨 D3 用例）
+
+A 的 D3 记录写的是「t=140 提交 A5 封闭**无灾情的备用路** … N7 → GATE3 不可达」，
+与上面 2a 封闭 R-N7E（有积水）是**不同对象**，两者并不矛盾。B 独立复现如下：
+
+提交：T+140 动作面板 A5 → **R-N1-GATE3**（北 1 至 3 号门·训练备用道路，自然灾情列为「—」）
+#action-feedback = "A5 封路 → R-N1-GATE3 · 第1次 · 已通过 · 进行中 · 预计 @165"，无 alert-error
+T+140（未完成）道路表 R-N1-GATE3 = ["北 1 至 3 号门（训练备用道路）", "—", "未封闭"]
+T+140 路径 N7 → GATE3 = ready，2 段，660.0 px，经 R-N7-N1 + R-N1-GATE3
+  （直达路 R-N7E 因积水 @140 已被避开，故此时走备用路）
+T+220（A5 已完成）：
+- 路径 N7 → GATE3 = **unreachable**，页面文案「路径已计算，但当前路网无可通行路径」
+- 道路表 R-N1-GATE3 = ["…", "—", "已封闭 @165 · seq1"]
+- 道路表 R-N7E = ["北 7 东侧至 3 号门", "积水 @140", "未封闭"]（灾情仍在、未正式封闭，双态分离）
+- 地图标记 = [mark-disaster 北 7 三层确认为真实火情 @90, mark-hazard 积水 @140, **mark-closed 封闭·seq1**]
+结论：封闭备用路后 3 号门确实不可达；封闭有灾情的直达路则因备用路存在而改道 660px。
+两种情形均由 B 在真实页面独立跑通，不可达分支不再只依赖构造用例。
+
+## 3. D3 语义 · 同秒资源 / A6 断电 / 拒绝占 seq / 回看只读
+
+T+100 同秒提交两动作（均 accepted，资源互不冲突）：
+- A2 派队 → N7：seq1，预计 @160；占用「救援队 容量 1 队 占用中 100→160 · seq1」
+- A3 警戒 → N7：seq2，预计 @130；占用「警戒组 容量 1 组 占用中 100→130 · seq2」
+- 其余四资源显示「空闲 / 本流水无占用记录」
+
+T+110：
+- A6 断电 → N7：seq3，accepted，预计 @145
+- A6 断电 → CN1：seq4，rejected，TARGET_NOT_APPLICABLE「对象楼栋必须已有灾情标注」，第1次
+- A6 断电 → CN1 再提交：seq5，rejected，同因，第2次（拒绝同样占 seq，attempt 递增）
+
+断电标记随完成时刻出现：
+- T+130 地图标记 = [disaster 北 7 三层确认为真实火情 @90, cordon 警戒已就位 @130, rescue 救援队在途 · 预计 @160]，**无 powercut**
+- T+150 地图标记 = 上述 3 条 + **mark-powercut「已断电 @145」** + mark-hazard「积水 @140」
+- T+150 当前态势含「萃园 7 幢（北 7） · 已断电 @145 · seq3」
+- T+150 信息流含「@145 路况 萃园 7 幢（北 7） · 已断电 · seq3」与三条 A6 动作行（含两条拒绝原因原文）
+
+回看只读（furthest = 第 14 回合 T+300，回跳 T+150）：
+- HUD 出现「回看只读」；#drill-review = "回看只读。返回第 14 回合后可继续提交。"
+- 动作面板 6 个 select 全部 disabled、6 个提交按钮全部 disabled
+- 上报卡判读/定位 select 数量 = 0（v-if canWrite 不渲染），记录按钮全部 disabled
+- #sort-entry disabled = true；#finish-drill 不存在
+- 回到 T+300：#sort-entry disabled = false，#finish-drill 存在
+
+## 4. 地图标记/标注防挤（屏幕空间 getBoundingClientRect 实测）
+
+测量对象：.mark-pill 两两相交、.mark-pill × .label-name、.label-name 两两相交。
+缩放实际到达值（按钮步进 1.25×，非精确目标值）：0.7 / 1.1 / 2.7 / 5.0。
+
+T+150（5 个标记）
+| zoom | marks | labels | pill×pill | pill×label | label×label |
+| --- | --- | --- | --- | --- | --- |
+| 0.7 | 5 | 4 | 0 | 0 | 0 |
+| 1.1 | 5 | 5 | 0 | 0 | 0 |
+| 2.7 | 5 | 21 | 0 | 0 | 0 |
+| 5.0 | 5 | 22 | 0 | 0 | 0 |
+
+T+300（5 个标记）
+| zoom | marks | labels | pill×pill | pill×label | label×label |
+| --- | --- | --- | --- | --- | --- |
+| 0.7 | 5 | 4 | 0 | 0 | 0 |
+| 1.1 | 5 | 5 | 0 | 0 | 0 |
+| 2.7 | 5 | 22 | 0 | 0 | 0 |
+| 5.0 | 5 | 22 | 0 | 0 | 0 |
+
+标记数量在各缩放档均保持 5/5（不因防挤丢弃）；标注数量随 LOD 递增（总览只留地标，放大逐栋显示）。
+
+## 5. 375px 布局（同源 iframe 375×812）
+
+innerWidth = 375，documentElement.scrollWidth = 375，body.scrollWidth = 375 → **无横向滚动**
+动作页签：6 张卡，宽度全部 316px（单列），maxRight = 341 ≤ 375，无溢出
+信息流页签：chip 按钮无溢出
+评分页签：双分支对照 3 条，无溢出
+残留观察（非布局溢出）：SVG 内 1 个路口标注 g.label-junction / rect.label-pill 右边缘 382px，
+被 svg{overflow:hidden} 裁掉 7px，页面 scrollWidth 仍 375。属总览边缘标注裁切，待后续边缘感知摆放优化。
+
+## 6. 对比度（alpha 逐层合成后计算，WCAG 相对亮度）
+
+方法修正：先前一版探针把首个非透明祖先的 rgba 当作不透明背景，daylight 下取到
+rgba(26,36,54,0.06) 导致比值失真（最小 1.00）。改为自底向上合成所有半透明层后再算，结果如下。
+
+ops（夜航指挥）背景合成 rgb(17,26,42)
+| 元素 | 前景 | 比值 |
+| --- | --- | --- |
+| .action-name / .feed-text / .branch-name | rgb(233,238,247) | 14.99 |
+| .action-id / .feed-t / .branch-total | rgb(255,178,36) | 9.68 |
+| .action-pre / .action-dur / .action-count / .feed-kind / .branch-id | rgb(148,162,185) | 6.76 |
+最小 **6.76** ≥ 4.5（AA 正文）
+
+daylight（教室投影）背景合成 rgb(234,231,222)
+| 元素 | 前景 | 比值 |
+| --- | --- | --- |
+| .action-name / .feed-text / .branch-name | rgb(26,36,54) | 12.55 |
+| .action-id / .feed-t / .branch-total | rgb(122,84,0) | 5.47 |
+| .action-pre / .action-dur / .action-count / .feed-kind / .branch-id | rgb(92,101,119) | 4.73 |
+最小 **4.73** ≥ 4.5（AA 正文）
+
+测量后主题已还原为 ops。
+
+## 7. 控制台
+
+list_console_messages：10 条，全部为 [debug] vite connecting/connected/hot updated。
+**warning 0、error 0、page error 0。**

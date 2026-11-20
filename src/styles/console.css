@@ -1,17 +1,9 @@
 /* 应急指挥控制台 · 共享视觉语言（T2 诊断台 / T3 地图页共用）
-   双主题：ops 夜航指挥（默认）/ daylight 教室投影·日光纸面。
-   所有颜色走 token，html[data-theme] 一键换肤，地图 SVG 同步。 */
+   主题 token（ink/line/paper/muted 与地图材质）单一来源在 drill.css，
+   本文件只保留 drill 未定义的语义色、派生 token、类别色与诊断台组件样式。 */
 
 :root {
   color-scheme: dark;
-  --ink-950: #070b12;
-  --ink-900: #0c1220;
-  --ink-850: #101828;
-  --ink-800: #152033;
-  --line: #22304a;
-  --line-soft: #1a2537;
-  --paper: #e9eef7;
-  --muted: #94a2b9;
   --amber: #ffb224;
   --amber-soft: rgba(255, 178, 36, 0.12);
   --red: #ff5c5c;
@@ -27,10 +19,8 @@
   --wash-amber: rgba(255, 178, 36, 0.07);
   --wash-blue: rgba(65, 185, 255, 0.06);
   --wash-red: rgba(255, 92, 92, 0.05);
-  --ribbon-wash: rgba(255, 178, 36, 0.1);
   --selection: rgba(255, 178, 36, 0.3);
   --scroll-hover: #3a4c6e;
-  --topbar-bg: rgba(7, 11, 18, 0.88);
   --edge-amber: rgba(255, 178, 36, 0.45);
   --edge-red: rgba(255, 92, 92, 0.45);
   --edge-blue: rgba(65, 185, 255, 0.45);
@@ -80,19 +70,22 @@
 
   --font-sans: 'PingFang SC', 'Microsoft YaHei', 'Source Han Sans SC', 'Noto Sans CJK SC', system-ui, sans-serif;
   --font-mono: 'Cascadia Code', 'JetBrains Mono', Consolas, 'Courier New', monospace;
+  /* 工业标牌字（DIN 系）：时钟 / 大数字 / 回合刻度，Windows 自带零依赖 */
+  --font-display: 'Bahnschrift', 'DIN Alternate', 'Arial Narrow', var(--font-sans);
+
+  /* 地图材质中 drill.css 未定义的其余 token（两主题各自取值） */
+  --map-road-center: #4a5d73;
+  --map-band-dark: #0a1017;
+  --map-band-lit: #ffc46b;
+  --map-band-cool: #9fd8ff;
+  --map-tree-trunk: #241d16;
+  --map-crossing: #1a2430;
+  --map-crossing-dot: #3d4f63;
 }
 
-/* 教室投影 · 日光纸面：暖纸底 + 冷墨字，accent 全部压到纸面可读对比度 */
+/* 教室投影 · 日光纸面：语义色压到纸面可读对比度；主题基础 token 见 drill.css */
 html[data-theme='daylight'] {
   color-scheme: light;
-  --ink-950: #f1ede2;
-  --ink-900: #f7f3e9;
-  --ink-850: #fffdf7;
-  --ink-800: #ece6d8;
-  --line: #cfc6b2;
-  --line-soft: #ddd6c6;
-  --paper: #1a2436;
-  --muted: #5c6577;
   --amber: #7a5400;
   --amber-soft: rgba(122, 84, 0, 0.1);
   --red: #a92019;
@@ -107,10 +100,8 @@ html[data-theme='daylight'] {
   --wash-amber: rgba(122, 84, 0, 0.06);
   --wash-blue: rgba(11, 107, 203, 0.05);
   --wash-red: rgba(194, 47, 38, 0.04);
-  --ribbon-wash: rgba(122, 84, 0, 0.09);
   --selection: rgba(122, 84, 0, 0.25);
   --scroll-hover: #b3a88f;
-  --topbar-bg: rgba(255, 253, 247, 0.9);
   --edge-amber: rgba(122, 84, 0, 0.75);
   --edge-red: rgba(194, 47, 38, 0.65);
   --edge-blue: rgba(11, 107, 203, 0.65);
@@ -147,6 +138,15 @@ html[data-theme='daylight'] {
   --cat-office-fill: rgba(51, 64, 90, 0.12);
   --cat-other: #5c6577;
   --cat-other-fill: rgba(92, 101, 119, 0.14);
+
+  /* 地图材质中 drill.css 未定义的其余 token（日光纸面） */
+  --map-road-center: #f6f3ec;
+  --map-band-dark: #8d979e;
+  --map-band-lit: #8d979e;
+  --map-band-cool: #8d979e;
+  --map-tree-trunk: #9c8668;
+  --map-crossing: #d8d2c6;
+  --map-crossing-dot: #a89f8d;
 }
 
 * { box-sizing: border-box; }
@@ -163,13 +163,6 @@ body {
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.6;
-  background:
-    radial-gradient(1100px 500px at 12% -8%, var(--wash-amber), transparent 60%),
-    radial-gradient(900px 600px at 105% 110%, var(--wash-blue), transparent 55%),
-    repeating-linear-gradient(0deg, transparent 0 39px, var(--grid) 39px 40px),
-    repeating-linear-gradient(90deg, transparent 0 39px, var(--grid) 39px 40px),
-    var(--ink-950);
-  background-attachment: fixed;
 }
 
 ::selection { background: var(--selection); }
@@ -181,59 +174,7 @@ body {
 
 code, .mono { font-family: var(--font-mono); }
 
-/* ---------- 顶栏 ---------- */
-
-.topbar {
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px 20px;
-  padding: 12px 24px;
-  background: var(--topbar-bg);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--line);
-}
-
-.topbar::before {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: linear-gradient(180deg, var(--amber), var(--red));
-}
-
-.brand { display: flex; flex-direction: column; gap: 2px; margin-right: auto; }
-
-.brand-title {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
-.brand-title .accent { color: var(--amber); }
-
-.brand-sub {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--muted);
-  letter-spacing: 0.08em;
-}
-
-.topbar-badges { display: flex; flex-wrap: wrap; gap: 8px; }
-
 .theme-toggle { display: inline-flex; align-items: center; gap: 8px; }
-.theme-toggle .orb {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  flex: none;
-  background: linear-gradient(135deg, var(--blue) 0 50%, var(--amber) 50% 100%);
-  border: 1px solid var(--line);
-}
 
 /* ---------- 徽标 ---------- */
 
@@ -601,20 +542,6 @@ input[type='range']::-moz-range-thumb {
 
 .lane-meta { margin-top: 8px; font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); }
 
-/* ---------- 页脚 ---------- */
-
-.page-foot {
-  margin-top: 24px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line-soft);
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--muted);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 18px;
-}
-
 /* ---------- 响应式 ---------- */
 
 @media (max-width: 1100px) {
@@ -623,10 +550,8 @@ input[type='range']::-moz-range-thumb {
 }
 
 @media (max-width: 640px) {
-  .topbar { padding: 10px 14px; }
   .shell { padding: 14px 12px 40px; }
   .panel-body { padding: 12px; }
-  .brand-title { font-size: 15px; }
 }
 
 /* ==========================================================================
@@ -640,47 +565,10 @@ input[type='range']::-moz-range-thumb {
   overflow: hidden;
 }
 
-.deck .topbar { position: static; backdrop-filter: none; }
-
 .diag-scroll { height: 100%; overflow-y: auto; overscroll-behavior: contain; }
-
-/* 首屏精度声明条 */
-.ribbon {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 7px 24px;
-  border-bottom: 1px solid var(--line-soft);
-  background: linear-gradient(90deg, var(--ribbon-wash), var(--wash-red) 55%, transparent);
-}
-.ribbon-tag {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  color: var(--amber);
-  border: 1px solid var(--edge-amber);
-  border-radius: var(--r-sm);
-  padding: 1px 7px;
-}
-.ribbon-text { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--paper); }
 
 /* 主区域 */
 .deck-main { min-height: 0; overflow: hidden; padding: 14px 18px; }
-
-/* 底部状态条 = 地图页脚 */
-.statusbar {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 9px 24px;
-  border-top: 1px solid var(--line);
-  background: linear-gradient(180deg, var(--ink-900), var(--ink-950));
-}
-.statusbar-badges { display: flex; gap: 8px; flex: none; }
-.statusbar-notice { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--paper); }
-.statusbar-meta { margin: 0 0 0 auto; flex: none; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); text-align: right; }
 
 /* 地图 + 情报轨 栅格 */
 .mapwrap {
@@ -695,56 +583,43 @@ input[type='range']::-moz-range-thumb {
   position: relative;
   min-height: 0;
   min-width: 0;
-  border: 1px solid #c6c3bb;
-  border-radius: var(--r-lg);
-  background: #cfcdc7;
+  border: 1px solid var(--map-hud-edge);
+  border-radius: 6px;
+  background: var(--map-void);
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 10px;
 }
-.map-stage .campus-svg { width: 100%; height: 100%; min-width: 0; border: none; border-radius: var(--r-md); background: transparent; }
+.map-stage .campus-svg { width: 100%; height: 100%; min-width: 0; border: none; border-radius: 5px; background: transparent; }
 
 /* 舞台四角框线：实体沙盘方案下移除设备感框线 */
 .stage-frame { display: none; }
 
-/* HUD 叠层 */
+/* HUD 叠层：tl/tr 让位给 CampusMap 自带的缩放键（左上）与指北针（右上），置于其下方 */
 .hud { position: absolute; pointer-events: none; display: flex; flex-direction: column; gap: 3px; }
-.hud-tl { top: 18px; left: 20px; }
-.hud-tr { top: 18px; right: 20px; align-items: flex-end; text-align: right; }
-.hud-br { bottom: 18px; right: 20px; align-items: flex-end; text-align: right; }
-.hud-clock {
-  font-family: var(--font-mono);
-  font-size: 34px;
-  font-weight: 700;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  color: var(--amber);
-  text-shadow: 0 0 18px var(--glow-amber);
-  letter-spacing: 0.02em;
-}
-.hud-clock small { font-size: 15px; color: var(--muted); font-weight: 600; margin-left: 2px; }
-.hud-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em; color: var(--muted); }
-.hud-line { font-family: var(--font-mono); font-size: 11.5px; color: var(--paper); }
-.hud-line .dim { color: var(--muted); }
-.hud-pill { display: inline-flex; gap: 6px; align-items: center; }
-
-/* 明亮沙盘上的舞台浮层：薄底浅卡 + 深墨字，红/橙/蓝只承担状态 */
+.hud-tl { top: 64px; left: 10px; }
+.hud-tr { top: 64px; right: 12px; align-items: flex-end; text-align: right; }
+.hud-br { bottom: 10px; right: 12px; align-items: flex-end; text-align: right; }
 .map-stage .hud {
-  background: rgb(251 250 246 / 0.86);
-  border: 1px solid #d8d2c6;
-  border-radius: 10px;
-  padding: 8px 10px;
-  box-shadow: 0 2px 10px rgb(60 55 45 / 0.1);
+  background: var(--map-hud-plate);
+  border: 1px solid var(--map-hud-edge);
+  border-radius: 8px;
+  padding: 7px 10px;
 }
-.map-stage .hud-label { color: #6b6353; }
-.map-stage .hud-line { color: #33302a; }
-.map-stage .hud-line.dim, .map-stage .hud-line .dim { color: #6b6353; }
-.map-stage .hud-clock { color: #33302a; text-shadow: none; }
-.map-stage .hud-clock small { color: #6b6353; }
-.map-stage .badge-blue { color: #245a90; background: #e3ecf5; border-color: #b9cfe4; }
-.map-stage .badge-red { color: #a33524; background: #f5e3df; border-color: #e0b7ae; }
+.hud-label { font-size: 11px; font-weight: 650; color: var(--map-hud-dim); }
+.hud-clock {
+  font-size: 24px;
+  font-weight: 750;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--map-hud-ink);
+}
+.hud-line { font-size: 12px; color: var(--map-hud-ink); }
+.hud-line.dim, .hud-line .dim { color: var(--map-hud-dim); }
+.hud-pill { display: inline-flex; gap: 6px; align-items: center; }
+.map-stage .badge-blue { color: var(--blue); background: var(--blue-soft); border-color: var(--edge-blue); }
+.map-stage .badge-red { color: var(--red); background: var(--red-soft); border-color: var(--edge-red); }
 
 /* 窄屏：沙盘浮层让位给模型本体，路况计数在情报轨仍有完整通路 */
 @media (max-width: 640px) {
@@ -775,7 +650,6 @@ input[type='range']::-moz-range-thumb {
   padding: 12px 14px;
 }
 .rail-head { display: flex; align-items: baseline; gap: 10px; }
-.rail-head .no { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--amber); letter-spacing: 0.1em; }
 .rail-head h2 { margin: 0; font-size: 13.5px; font-weight: 700; letter-spacing: 0.03em; }
 .rail-head .sub { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
 
@@ -1018,11 +892,11 @@ table.data tbody tr:focus-visible { outline: 2px solid var(--amber); outline-off
 .verdict-controls select { flex: 1; min-width: 0; }
 .verdict-controls .btn { min-height: 44px; }
 
-/* 响应式：平板单列轨在右变下？保持双列到 1100，以下单列 + 底部舱 */
+/* 响应式：与 drill.css 同口径，920 以下单列 + 底部舱 */
 @media (max-width: 1100px) {
   .mapwrap { grid-template-columns: minmax(0, 1fr) 340px; }
 }
-@media (max-width: 900px) {
+@media (max-width: 920px) {
   .deck-main { padding: 8px 10px; overflow-y: auto; overscroll-behavior: contain; }
   .deck-main::-webkit-scrollbar { width: 8px; }
   .deck-main::-webkit-scrollbar-track { background: var(--ink-950); }
@@ -1046,20 +920,11 @@ table.data tbody tr:focus-visible { outline: 2px solid var(--amber); outline-off
   .rail[data-active='roads'] .sec-roads,
   .rail[data-active='route'] .sec-route,
   .rail[data-active='score'] .sec-score { display: flex; }
-  .hud-clock { font-size: 26px; }
   .hud-tl .hud-line, .hud-tr .dim { display: none; }
-  .brand-sub { display: none; }
-  .topbar-badges { display: none; }
-  .brand-title { font-size: 16px; }
-  .statusbar-meta { display: none; }
-  .topbar { padding: 8px 12px; gap: 8px; }
-  .ribbon { padding: 5px 12px; }
-  .ribbon-text { font-size: 12px; }
-  .statusbar { flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
 }
 
 /* 极窄屏：道路表不靠横向滚动，压缩字号与内边距让三列放得下 */
-@media (max-width: 400px) {
+@media (max-width: 390px) {
   table.data { font-size: 12px; }
   table.data th, table.data td { padding: 5px 6px; }
   table.data td.wrap { min-width: 0; }
@@ -1074,12 +939,12 @@ table.data tbody tr:focus-visible { outline: 2px solid var(--amber); outline-off
   .verdict-controls .btn { flex: 1 1 100%; }
 }
 /* ---- D4：动作面板 / 信息流 / 末回合排序 / 双分支对照 ---- */
-.btn-sm { padding: 2px 8px; font-size: 12px; min-height: 26px; }
 .cell-green { background: var(--cell-blue); color: var(--green); }
 .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 .chip-row button {
   border: 1px solid var(--line); background: var(--ink-900); color: var(--muted);
   border-radius: 999px; padding: 3px 12px; font-size: 12px; cursor: pointer;
+  min-height: 44px; display: inline-flex; align-items: center;
   font-family: var(--font-sans); transition: color 0.12s ease, border-color 0.12s ease;
 }
 .chip-row button:hover { color: var(--paper); border-color: var(--scroll-hover); }
@@ -1132,6 +997,66 @@ table.data tbody tr:focus-visible { outline: 2px solid var(--amber); outline-off
 .branch-id { color: var(--muted); font-size: 11px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .branch-total { color: var(--amber); font-size: 18px; font-weight: 700; flex: none; }
 .branch-total.null { color: var(--muted); }
-@media (max-width: 900px) {
+@media (max-width: 920px) {
   .action-cards { grid-template-columns: 1fr; }
 }
+
+/* ==========================================================================
+   后置精修：情报轨 / 诊断台组件在同特异性下覆盖基础样式。
+   主题与地图材质 token 单一来源在 drill.css；舞台与 HUD 见上方 .map-stage 段。
+   ========================================================================== */
+
+.deck-main { padding: 10px 14px; }
+@media (min-width: 921px) {
+  .mapwrap { grid-template-columns: minmax(0, 1fr) 352px; gap: 10px; }
+}
+
+[data-theme='daylight'] .map-stage .entrance-pool,
+[data-theme='daylight'] .map-stage .lamp-pool { opacity: 0.16; }
+[data-theme='daylight'] .map-stage .vol-roof-tint { opacity: 0.12; }
+
+/* 情报轨 = 指挥席模块：直角小圆角 + 顶部信号细线，取代均匀圆角卡片阵 */
+.rail { gap: 8px; }
+.rail-sec {
+  position: relative;
+  border-radius: 4px;
+  border-color: var(--line-soft);
+  background: linear-gradient(180deg, var(--ink-900), var(--ink-950));
+  padding: 10px 12px;
+}
+.rail-sec::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 34px;
+  height: 2px;
+  background: var(--amber);
+}
+.rail-sec.sec-score::before { background: var(--green); }
+.rail-sec.sec-actions::before { background: var(--red); }
+.rail-sec.sec-feed::before, .rail-sec.sec-reports::before { background: var(--blue); }
+.rail-head h2 { font-size: 13px; letter-spacing: 0.02em; }
+.rail-head .sub { font-size: 10px; }
+
+.panel { border-radius: 4px; }
+.panel-head { padding: 9px 14px; }
+.panel-body { padding: 12px 14px 14px; }
+
+.btn { border-radius: 4px; }
+.btn-primary { box-shadow: inset 0 0 0 1px var(--edge-amber); }
+.chip, .round-tick { border-radius: 3px; }
+.round-tick .tick-t { font-family: var(--font-display); font-size: 14px; letter-spacing: 0.02em; }
+.round-now-t { font-family: var(--font-display); font-size: 24px; letter-spacing: 0.02em; }
+.score-total { font-family: var(--font-display); font-size: 40px; letter-spacing: 0.02em; }
+.branch-total { font-family: var(--font-display); font-size: 20px; }
+
+/* 动作卡：紧凑指挥行，类别信号只在左缘 */
+.action-card { border-radius: 4px; border-left: 2px solid var(--edge-amber); background: var(--ink-950); }
+.action-id { font-family: var(--font-display); letter-spacing: 0.04em; }
+.feed-list li { border-radius: 0 3px 3px 0; }
+.report-card { border-radius: 4px; }
+
+/* 语义动效：信标脉冲 / 雨幕 / 路径流光（SMIL 由组件按 reduced-motion 门控） */
+@keyframes beacon-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+@keyframes rain-fall { to { transform: translateY(46px); } }
+@keyframes glow-breathe { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.95; } }

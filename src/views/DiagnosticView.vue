@@ -1081,7 +1081,7 @@ async function runTimingChecks(): Promise<void> {
             </table>
           </div>
         </template>
-        <RoutePanel :route="routeResult" :query="routeQuery" :map="map" :roads="snapshot?.roads ?? []" />
+        <RoutePanel technical :route="routeResult" :query="routeQuery" :map="map" :roads="snapshot?.roads ?? []" />
         <p class="note">此处使用 D2 寻路引擎。积水等灾情出现时立即绕行，正式封闭仍单独记录。</p>
       </div>
     </section>
@@ -1192,7 +1192,7 @@ async function runTimingChecks(): Promise<void> {
         <div class="diag-map" id="constructed-map">
           <CampusMap :map="map" :roads="snapshot?.roads ?? []" :route="constructedRoute" />
         </div>
-        <RoutePanel :route="constructedRoute" :query="constructedQuery" :map="map" :roads="snapshot?.roads ?? []" />
+        <RoutePanel technical :route="constructedRoute" :query="constructedQuery" :map="map" :roads="snapshot?.roads ?? []" />
       </div>
     </section>
 

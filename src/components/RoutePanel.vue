@@ -4,6 +4,7 @@ import type { MapView, RoadStatus, RouteQuery, RouteResult } from '../fixture-po
 import { ROUTE_PENDING_TEXT, ROUTE_UNREACHABLE_TEXT } from '../fixture-port';
 import { HAZARD_LABEL } from '../config/categories';
 import { endpointName } from '../config/route-query';
+import { simStamp } from '../config/format';
 
 const props = withDefaults(
   defineProps<{
@@ -11,11 +12,13 @@ const props = withDefaults(
     query?: RouteQuery | null;
     map?: MapView | null;
     roads?: readonly RoadStatus[];
+    technical?: boolean;
   }>(),
-  { query: null, map: null, roads: () => [] },
+  { query: null, map: null, roads: () => [], technical: false },
 );
 
 const ready = computed(() => (props.route?.status === 'ready' ? props.route : null));
+const unreachable = computed(() => (props.route?.status === 'unreachable' ? props.route : null));
 
 const segmentRows = computed(() =>
   (ready.value?.road_ids ?? []).map((id) => {
@@ -64,29 +67,35 @@ function fromName(id: string): string {
     <div v-else class="route-ready" id="route-ready">
       <div class="route-head">
         <span class="route-ends">{{ fromName(route.from_node_id) }} → {{ fromName(route.to_node_id) }}</span>
-        <span class="badge badge-green badge-sm">ready @{{ route.at_sim }}</span>
+        <span v-if="technical" class="badge badge-green badge-sm">ready @{{ route.at_sim }}</span>
+        <span v-else class="badge badge-green badge-sm">已算出可通行路线</span>
       </div>
-      <span class="mono route-sum">{{ route.road_ids.length }} 段 · 图上长度 {{ route.length_px.toFixed(1) }} px</span>
+      <span v-if="technical" class="mono route-sum">{{ route.road_ids.length }} 段 · 路网计算长度 {{ route.length_px.toFixed(1) }} px</span>
+      <span v-else class="route-sum">共 {{ route.road_ids.length }} 段路（图上示意 · 非实际距离）</span>
       <span class="note route-chain">{{ nodeChain }}</span>
       <ul class="route-segs">
         <li v-for="seg in segmentRows" :key="seg.id" class="route-seg">
-          <span class="mono seg-id">{{ seg.id }}</span>
+          <span v-if="technical" class="mono seg-id">{{ seg.id }}</span>
           <span class="seg-name">{{ seg.name }}</span>
           <span v-if="seg.closed" class="badge badge-red badge-sm">封闭</span>
           <span v-else-if="seg.hazard !== null" class="badge badge-blue badge-sm">{{ HAZARD_LABEL[seg.hazard] }}</span>
           <span v-else class="badge badge-green badge-sm">通行</span>
         </li>
       </ul>
-      <p v-if="query" class="note mono route-query">
+      <p v-if="technical && query" class="note mono route-query">
         query 携带 {{ query.road_segments?.length ?? 0 }} 条快照路段状态（blocked / hazard 分开传递）
       </p>
     </div>
 
     <p v-if="route === null && query === null" class="note">选择路径终点后发起查询；起终点相同时禁用查询。</p>
-    <p v-else-if="route === null" class="note mono">
+    <p v-else-if="route === null && technical" class="note mono">
       query: {{ query?.from_node_id }} → {{ query?.to_node_id }} @ t={{ query?.at_sim }}
     </p>
-    <p v-else-if="route.status === 'unreachable'" class="note mono">reason: {{ route.reason }}</p>
+    <p v-else-if="route === null && query" class="note">
+      查询：{{ fromName(query.from_node_id) }} → {{ fromName(query.to_node_id) }} · {{ simStamp(query.at_sim) }}
+    </p>
+    <p v-else-if="unreachable && technical" class="note mono">reason: {{ unreachable.reason }}</p>
+    <p v-else-if="unreachable" class="note">不可达原因：{{ unreachable.reason }}</p>
   </div>
 </template>
 

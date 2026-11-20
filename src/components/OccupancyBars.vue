@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { ResourceDef, ResourceUsage } from '../contracts';
+import { formatSimTime, seqLabel } from '../config/format';
 
 const props = defineProps<{
   resources: readonly ResourceDef[];
@@ -19,7 +20,7 @@ const activeUnits = (resourceId: string) => unitsByResource.value.get(resourceId
 function intervalsOf(resourceId: string): string {
   const list = props.occupancy.filter((u) => u.resource_id === resourceId);
   if (!list.length) return '本流水无占用记录';
-  return list.map((u) => `${u.from_sim}→${u.to_sim ?? '结束'} · seq${u.action_seq}`).join('；');
+  return list.map((u) => `${formatSimTime(u.from_sim)}→${u.to_sim === null ? '结束' : formatSimTime(u.to_sim)} · ${seqLabel(u.action_seq)}`).join('；');
 }
 function fillPercent(resourceId: string, capacity: number): number {
   return capacity <= 0 ? 0 : Math.min(100, (activeUnits(resourceId) / capacity) * 100);
@@ -31,7 +32,7 @@ function fillPercent(resourceId: string, capacity: number): number {
     <div v-for="res in resources" :key="res.id" class="occ-row" :class="{ busy: activeUnits(res.id) > 0 }">
       <div class="occ-head">
         <span class="occ-name">{{ res.name }}</span>
-        <span class="occ-cap mono">容量 {{ res.capacity }} {{ res.unit }}</span>
+        <span class="occ-cap">容量 {{ res.capacity }} {{ res.unit }}</span>
         <span class="badge badge-sm" :class="activeUnits(res.id) > 0 ? 'badge-amber' : 'badge-muted'">
           {{ activeUnits(res.id) > 0 ? '占用中' : '空闲' }}
         </span>
@@ -39,7 +40,7 @@ function fillPercent(resourceId: string, capacity: number): number {
       <div class="occ-track" role="img" :aria-label="`${res.name}，占用 ${activeUnits(res.id)} / ${res.capacity}`">
         <span class="occ-fill" :style="{ width: `${fillPercent(res.id, res.capacity)}%` }"></span>
       </div>
-      <span class="occ-interval mono">{{ intervalsOf(res.id) }}</span>
+      <span class="occ-interval">{{ intervalsOf(res.id) }}</span>
     </div>
   </div>
 </template>

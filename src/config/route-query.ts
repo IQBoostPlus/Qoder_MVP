@@ -59,6 +59,7 @@ export function endpointName(map: MapView, id: string): string {
   return (
     map.buildings.find((b) => b.id === id)?.name ??
     map.junctions.find((j) => j.id === id)?.name ??
+    map.road_segments.find((r) => r.id === id)?.name ??
     id
   );
 }

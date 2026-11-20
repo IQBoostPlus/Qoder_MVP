@@ -1,4 +1,4 @@
-import type { Scenario, ScenarioNode } from '../contracts';
+import type { Scenario, ScenarioModifiers, ScenarioNode } from '../contracts';
 
 export type RoundKind = 'event' | 'advance' | 'final';
 
@@ -26,3 +26,12 @@ export function deriveRounds(scenario: Scenario): RoundInfo[] {
 
 export const DRILL_MODE_BADGE = '预置剧本，实时判定与评分';
 export const ENGINE_PENDING_LABEL = '待引擎接入';
+
+export const SCENARIO_MODIFIER_LABELS: Record<keyof ScenarioModifiers, string> = {
+  night: '夜间',
+  heavy_rain: '暴雨',
+  comms_outage: '通信中断',
+  crowd_peak: '人流高峰',
+};
+
+export const SCENARIO_CARD_NOTE = '本期 1 个预置剧本；AI 随机生成与更多案例后续版本接入';
