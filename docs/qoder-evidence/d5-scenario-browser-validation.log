@@ -1,0 +1,8 @@
+Chrome 157.0.8103.79 · production preview · offline providers
+375px preset → 43; simulated lab G8/T+30 → 43; started in 49 ms; reset keeps selected bundle
+1440px preset → 43; simulated lab G8/T+30 → 43; started in 57 ms; reset keeps selected bundle
+375px simulated 401 → gym preset score 42; session limit retained after reload
+1440px simulated 401 → gym preset score 42; session limit retained after reload
+375px switched while pending: gym retained; console warnings/errors 0; page errors 0
+1440px switched while pending: gym retained; console warnings/errors 0; page errors 0
+375px hung transport: preset after 14878 ms from click to mounted scenario (in-page clock); refresh + recovery sent 1 original POST and 1 read-only GET

@@ -1,5 +1,13 @@
 /prompt/
 /node_modules/
-/cloud-verify/
+/cloud-verify/*
+!/cloud-verify/build-d5-data.mjs
+!/cloud-verify/functions/
+/cloud-verify/functions/*
+!/cloud-verify/functions/d5-bundle.mjs
+!/cloud-verify/functions/d5-data.mjs
+!/cloud-verify/functions/d5-ledger.mjs
+!/cloud-verify/functions/d5-routes.mjs
+!/cloud-verify/functions/d5-service.mjs
 /dist/
 *.qoder.site

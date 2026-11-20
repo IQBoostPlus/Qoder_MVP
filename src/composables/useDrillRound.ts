@@ -1,7 +1,6 @@
 import { computed, getCurrentScope, onScopeDispose, ref, shallowRef, watch } from 'vue';
 import type {
   ActionId,
-  CanonicalFixture,
   LocationChoice,
   ReportId,
   RunEvent,
@@ -11,6 +10,7 @@ import type {
   VerdictAttempt,
 } from '../contracts';
 import type { ActionJudge } from '../action-engine';
+import type { RoundData } from '../scenario-generation/contracts';
 import type { FixturePort } from '../fixture-port';
 import { SORT_LIMIT } from '../score-engine';
 import { deriveRounds, ENGINE_PENDING_LABEL, type RoundInfo } from '../config/rounds';
@@ -44,7 +44,7 @@ export function pendingActionText(submission: PendingActionSubmission, tSim: num
 }
 
 export function useDrillRound(
-  fixture: CanonicalFixture,
+  fixture: RoundData,
   port: FixturePort,
   options?: { judgeAction?: ActionJudge },
 ) {

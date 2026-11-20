@@ -2,7 +2,9 @@
 
 面向高校保卫处新值班员和辅导员的单人训练工具。以夜间宿舍火灾为例，学员会在地图上看到通道积水，也会收到位置含糊、相互重复的模拟上报。学员需要辨别线索、选中楼栋、安排处置。结束后可以沿时间线查到哪一步得分、哪项遗漏，以及当时有哪些信息可用。
 
-**项目状态**　2026-11-20，规格 v4.1。D5 界面轨已交付复盘三块（时间线、失误定位跳回、预置摘要徽标「AI 点评待接入」）与五步试用入口 + 场景卡，并首次公网部署：[campus-drill-sandbox-kqvhf8qsvw2.qoder.zone](https://campus-drill-sandbox-kqvhf8qsvw2.qoder.zone)（public，匿名可访问；新站无数据库依赖，D2 私有站八表凭证仍属 A 账号站点）。公网桌面与 375px 复测甲 83、乙 44 与契约一致，控制台 0 报错；平台注入徽标与本站水印/dock 的干扰已实测并避让修复。首屏冷加载在本机代理网络实测 4.6–6.5 秒（目标 <3 秒，未达标，应用侧 <100ms，瓶颈为跨境网络，数字与方法见凭证）。2 名同学试用待真实结果回填；并发预算、真实断流恢复和第 5 次请求兜底仍待验。[D5 凭证](docs/qoder-evidence/D5-2026-11-20-review-deploy-trial.md) · [D4 交接](docs/handoff-d4.md) · [D2 云端验收](docs/qoder-evidence/D2-2026-11-18-cloud-acceptance.md)
+**项目状态**　2026-11-20，规格 v4.1。D5 界面轨已交付复盘三块（时间线、失误定位跳回、预置摘要徽标「AI 点评待接入」）与五步试用入口，并首次公网部署：[campus-drill-sandbox-kqvhf8qsvw2.qoder.zone](https://campus-drill-sandbox-kqvhf8qsvw2.qoder.zone)（public，匿名可访问；新站无数据库依赖，D2 私有站八表凭证仍属 A 账号站点）。公网桌面与 375px 复测甲 83、乙 44 与契约一致，控制台 0 报错；平台徽标干扰已实测并避让修复。首屏冷加载实测 4.6–6.5 秒，未达到 <3 秒目标；2 名同学试用待真实结果回填。本次仓库合并不代表上述公网部署已更新。[界面与公网凭证](docs/qoder-evidence/D5-2026-11-20-review-deploy-trial.md) · [D4 交接](docs/handoff-d4.md) · [D2 云端验收](docs/qoder-evidence/D2-2026-11-18-cloud-acceptance.md)
+
+**D5 引擎与生成**　三套训练模板已本地通过，私有验证站已跑通真实生成和整轮推演，三次生成最长 10.51 秒。数据库台账、同请求并发、最后槽预算与第 5 次阻断、两段断流恢复、客户端超时与迟到隔离已留存复验证据；最终关闭态已重新发布核验，真实生成默认关闭。跨实例同时写入及服务端 14.5 秒超时尚未直接证明。D4 对照仍为 83 / 44 / 90 / 83。[D5 交接](docs/handoff-d5.md) · [云端验收](docs/qoder-evidence/D5-2026-11-20-cloud-acceptance.md) · [最终关闭与复验](docs/qoder-evidence/D5-2026-11-20-close-guard-deployment.md#9-真实模式隔离复验与最终关闭2026-11-20)
 
 | 参赛事项 | 本期约定 |
 | --- | --- |
@@ -23,6 +25,7 @@
 | [`docs/handoff-d2.md`](docs/handoff-d2.md) | 完整路网、实际改道样例与云端验收 |
 | [`docs/handoff-d3.md`](docs/handoff-d3.md) | 六动作判定、学员流水与快照、回看交接及 D4 输入 |
 | [`docs/handoff-d4.md`](docs/handoff-d4.md) | 实时评分、末回合排序、逐条反馈、验证结果及后续接入 |
+| [`docs/handoff-d5.md`](docs/handoff-d5.md) | 三套预置、生成接口、校验、回退、用量与联调 |
 | [`src/engine-port.ts`](src/engine-port.ts) | 应用入口：地图、路径、回放、动作判定与学员评分 |
 | [`src/fixture-port.ts`](src/fixture-port.ts) | D1 地图派生、可见性、判断窗、回放、静态评分与静态路径空态 |
 | [`db/README.md`](db/README.md) | Sites 候选迁移、字段映射与本地读回验证 |
@@ -33,6 +36,8 @@
 `docs/mvp-spec.md` 为 v2 历史规格（3 人 13 天），**已废止**，仅作对照，不得作为实施依据。
 
 ## 如何体验
+
+当前本地版本用 Node 24 执行 `npm ci`、`npm run build`、`npm run preview`。从「推演」选择模板并开始预置训练。模拟生成和回退的启动方式见 [D5 交接](docs/handoff-d5.md#运行与部署)。
 
 验收时请一位未参与开发的人独立完成以下五步。**「3 分钟以内」是待测目标，不是已验证事实**——实测安排见 [`docs/quality-verification.md`](docs/quality-verification.md)。
 

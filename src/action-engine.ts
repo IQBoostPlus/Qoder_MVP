@@ -9,7 +9,7 @@ import type {
   RunEvent,
   SimSeconds,
 } from './contracts';
-import { actionCompletedBy, scenarioEventsAt, type MapSource } from './fixture-port';
+import { actionCompletedBy, scenarioEventsAt, type MapSource } from './fixture-port.ts';
 
 export interface ActionSubmissionInput {
   action_id: ActionId;

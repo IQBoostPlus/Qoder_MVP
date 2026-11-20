@@ -24,7 +24,6 @@ export function deriveRounds(scenario: Scenario): RoundInfo[] {
   });
 }
 
-export const DRILL_MODE_BADGE = '预置剧本，实时判定与评分';
 export const ENGINE_PENDING_LABEL = '待引擎接入';
 
 export const SCENARIO_MODIFIER_LABELS: Record<keyof ScenarioModifiers, string> = {

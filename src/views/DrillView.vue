@@ -4,7 +4,8 @@ import type { ActionId, LocationChoice, ScenarioModifiers, Verdict, VerdictAttem
 import { ActionEngineError } from '../action-engine';
 import { windowAt } from '../fixture-port';
 import { SORT_LIMIT } from '../score-engine';
-import { useFixturePort, useFixtureData } from '../composables/useFixturePort';
+import type { EnginePort } from '../engine-port';
+import type { RoundData } from '../scenario-generation/contracts';
 import { useDrillRound } from '../composables/useDrillRound';
 import { CATEGORY_STYLE, HAZARD_LABEL, formatBuildingFloors } from '../config/categories';
 import {
@@ -26,8 +27,7 @@ import RoutePanel from '../components/RoutePanel.vue';
 import ScorePanel from '../components/ScorePanel.vue';
 import OccupancyBars from '../components/OccupancyBars.vue';
 
-const port = useFixturePort();
-const fixture = useFixtureData();
+const { port, fixture } = defineProps<{ port: EnginePort; fixture: RoundData }>();
 const map = port.map;
 
 const drill = useDrillRound(fixture, port, { judgeAction: port.judgeAction });
