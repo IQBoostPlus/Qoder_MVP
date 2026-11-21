@@ -21,8 +21,15 @@ const store = createLocalRunStore();
 const round = shallowRef<{ id: string; data: RoundData; port: EnginePort; result: StoredRun['origin'] } | null>(null);
 const saved = shallowRef<StoredRun | null>(null);
 let persisted: StoredRun | null = null;
+const runSaved = computed(() => saved.value !== null && saved.value === persisted);
 const saveStatus = ref('');
+const roundSaveLabel = computed(() => {
+  if (saveStatus.value === '已从本机恢复') return saveStatus.value;
+  if (runSaved.value) return '已保存到本机';
+  return saveStatus.value.startsWith('版本冲突') ? '保存冲突' : '仅内存';
+});
 const importStatus = ref('');
+const exitDialog = ref<HTMLDialogElement | null>(null);
 const cloudPath = cloudRunPath();
 const syncing = ref(false);
 const syncedRevision = ref<number | null>(null);
@@ -102,13 +109,26 @@ function checkpoint(runId: string, progress: RunProgress, events: RunEvent[], sc
     saveStatus.value = '已保存到本机';
   } catch (error) { saveStatus.value = explainStorage(error); }
 }
-function exitRound(): void {
+function exitRound(confirmed = false): void {
+  if (!confirmed && !runSaved.value) {
+    exitDialog.value?.showModal();
+    return;
+  }
+  let exitStatus = '';
   try { if (saved.value) store.clearActive(saved.value.run_id); }
-  catch (error) { saveStatus.value = explainStorage(error); return; }
+  catch {
+    if (!confirmed) {
+      exitDialog.value?.showModal();
+      return;
+    }
+    exitStatus = '本机存储暂不可用。可在此核验已导出的轮次文件。';
+  }
+  exitDialog.value?.close();
   round.value = null;
   saved.value = null;
   persisted = null;
-  saveStatus.value = '';
+  saveStatus.value = exitStatus;
+  importStatus.value = '';
   syncedRevision.value = null;
   cloudError.value = '';
 }
@@ -157,6 +177,11 @@ const fallbackNote = computed(() => {
 });
 
 const modeNames: Record<Mode, string> = { drill: '推演', map: '示例回放', diag: '接口诊断' };
+const modeMenu = ref<HTMLDetailsElement | null>(null);
+function changeMode(mode: Mode): void {
+  tab.value = mode;
+  if (modeMenu.value) modeMenu.value.open = false;
+}
 const themeKey = 'campus-training-theme';
 function initialTheme(): 'ops' | 'daylight' {
   try { return localStorage.getItem(themeKey) === 'ops' ? 'ops' : 'daylight'; } catch { return 'daylight'; }
@@ -172,7 +197,7 @@ watchEffect(() => {
 </script>
 
 <template>
-  <div class="deck app-shell" :class="`app-mode-${tab}`">
+  <div class="deck app-shell" :class="[`app-mode-${tab}`, { 'app-active-drill': tab === 'drill' && round }]">
     <a class="app-skip" href="#main-content">跳到主要内容</a>
     <header class="app-header">
       <div class="app-identity">
@@ -186,8 +211,15 @@ watchEffect(() => {
       </div>
       <nav class="app-nav" aria-label="模式切换">
         <button v-for="(label, mode) in modeNames" :key="mode" type="button"
-          :aria-pressed="tab === mode" @click="tab = mode">{{ label }}</button>
+          :aria-pressed="tab === mode" @click="changeMode(mode)">{{ label }}</button>
       </nav>
+      <details v-if="tab === 'drill' && round" ref="modeMenu" class="app-mode-menu">
+        <summary class="btn">模式</summary>
+        <nav class="app-nav" aria-label="模式切换">
+          <button v-for="(label, mode) in modeNames" :key="mode" type="button"
+            :aria-pressed="tab === mode" @click="changeMode(mode)">{{ label }}</button>
+        </nav>
+      </details>
       <div class="app-header-tools">
         <span class="training-label" id="badge-training">训练模拟数据</span>
         <button type="button" class="btn theme-toggle" id="theme-toggle"
@@ -201,25 +233,39 @@ watchEffect(() => {
       <strong>精度声明</strong>
       <p>{{ PRECISION_NOTICE }}</p>
     </div>
+    <details v-if="tab === 'drill' && round" class="app-precision-menu">
+      <summary><strong>训练模拟数据</strong><span>精度说明</span></summary>
+      <p>{{ PRECISION_NOTICE }}</p>
+    </details>
 
     <main class="deck-main app-content" :class="{ 'drill-main': tab === 'drill', 'chooser-main': tab === 'drill' && !round }" id="main-content" tabindex="-1">
       <div v-if="tab === 'drill' && round" class="round-banner">
         <div><strong id="active-scenario">{{ round.data.scenario.title }}</strong><span class="round-source">{{ sourceLabel }}</span><p v-if="fallbackNote" role="status">{{ fallbackNote }}</p></div>
-        <div class="round-file-tools">
-          <span role="status" id="run-save-status">{{ saveStatus }}<template v-if="cloudStatus"> · {{ cloudStatus }}</template></span>
-          <button v-if="cloudPath" type="button" class="btn" :disabled="syncing" @click="syncNow">{{ syncing ? '同步中' : '同步云端' }}</button>
-          <button type="button" class="btn" @click="download">导出本轮 JSON</button>
-          <button type="button" class="btn" @click="exitRound">新开推演</button>
-        </div>
+        <span id="run-save-status" class="round-save-status" role="status" :title="saveStatus">{{ roundSaveLabel }}</span>
       </div>
       <KeepAlive v-if="round && saved" :key="round.id" :max="1">
-        <DrillView v-if="tab === 'drill'" :key="round.id" :port="round.port" :fixture="round.data" :saved="saved"
-          @checkpoint="checkpoint" @restart="restart" />
+        <DrillView v-if="tab === 'drill'" :key="round.id" :port="round.port" :fixture="round.data"
+          :saved="saved" :run-saved="runSaved" @checkpoint="checkpoint" @restart="restart">
+          <template #run-tools="{ save }">
+            <section class="run-file-tools" aria-labelledby="run-tools-heading">
+              <h3 id="run-tools-heading">本轮记录</h3>
+              <p class="work-muted">{{ saveStatus }}</p>
+              <p v-if="cloudStatus" class="work-muted" role="status">{{ cloudStatus }}</p>
+              <div class="work-controls">
+                <button type="button" class="btn work-small" @click="save(); download()">导出本轮 JSON</button>
+                <button v-if="cloudPath" type="button" class="btn work-small" :disabled="syncing"
+                  @click="save(); syncNow()">{{ syncing ? '同步中' : '同步云端' }}</button>
+                <button type="button" class="btn work-small" @click="save(); exitRound()">新开推演</button>
+              </div>
+            </section>
+          </template>
+        </DrillView>
       </KeepAlive>
       <ScenarioStart v-if="tab === 'drill' && !round" @start="startRound" @canonical="startCanonical" />
-      <section v-if="tab === 'drill' && !round" class="run-file-check">
+      <section v-if="tab === 'drill' && !round" class="run-file-check" aria-labelledby="run-file-heading">
+        <h2 id="run-file-heading">核验轮次文件</h2>
         <p v-if="saveStatus" role="status">{{ saveStatus }}</p>
-        <label>独立核验轮次 JSON <input type="file" accept=".json,application/json" @change="checkExport" /></label>
+        <label class="work-field">选择导出的 JSON <input type="file" accept=".json,application/json" @change="checkExport" /></label>
         <p v-if="importStatus" role="status">{{ importStatus }}</p>
       </section>
       <MapView v-if="tab === 'map'" />
@@ -236,6 +282,15 @@ watchEffect(() => {
     </footer>
 
     <div class="training-watermark" id="page-watermark" aria-hidden="true">训练模拟数据</div>
+    <dialog ref="exitDialog" class="work-dialog run-exit-dialog" aria-labelledby="run-exit-heading">
+      <h2 id="run-exit-heading">返回训练模板？</h2>
+      <p>当前进度可能未保存到本机。导出后，可以在模板页核验文件。</p>
+      <form method="dialog" class="work-controls">
+        <button type="button" class="btn" @click="download">导出本轮 JSON</button>
+        <button type="button" class="btn" @click="exitRound(true)">返回模板</button>
+        <button class="btn" autofocus>继续本轮</button>
+      </form>
+    </dialog>
   </div>
 </template>
 
@@ -244,12 +299,11 @@ watchEffect(() => {
 .drill-main :deep(.drill-workspace) { flex: 1; height: auto; min-height: 0; }
 .app-shell .chooser-main { overflow-y: auto; }
 .round-banner { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 14px; color: var(--work-ink); background: var(--work-panel); border-bottom: 1px solid var(--work-border); font-size: 12px; }
-.round-file-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.run-file-check { padding: 12px; }
-.run-file-check input { max-width: 100%; }
-@media (max-width: 600px) { .round-banner { flex-wrap: wrap; } }
 .round-banner > div { min-width: 0; }
 .round-banner p { margin: 4px 0 0; }
-.round-banner .btn { min-height: 44px; flex: none; }
 .round-source { margin-left: 8px; color: var(--work-muted); }
+@media (max-width: 640px) {
+  .round-banner { padding: 5px 10px; }
+  .round-source { display: block; margin-left: 0; font-size: 11px; }
+}
 </style>

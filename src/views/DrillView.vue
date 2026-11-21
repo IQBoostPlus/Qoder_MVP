@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue';
-import type { ActionId, LocationChoice, ScenarioModifiers, Verdict, VerdictAttempt } from '../contracts';
+import type { ActionAttempt, ActionId, LocationChoice, RunEvent, Verdict, VerdictAttempt } from '../contracts';
 import { ActionEngineError } from '../action-engine';
 import { windowAt } from '../fixture-port';
 import { SORT_LIMIT } from '../score-engine';
 import type { EnginePort } from '../engine-port';
 import type { RoundData } from '../scenario-generation/contracts';
-import type { RunEvent } from '../contracts';
 import type { RunProgress, StoredRun } from '../run-store/contracts';
 import { useDrillRound } from '../composables/useDrillRound';
 import { CATEGORY_STYLE, HAZARD_LABEL, formatBuildingFloors } from '../config/categories';
@@ -23,15 +22,20 @@ import {
 import { buildRouteQuery, endpointOptions, endpointName, locationOptions, UNLOCATABLE } from '../config/route-query';
 import { closedStamp, formatSimTime, simStamp, seqLabel } from '../config/format';
 import { REVIEW_SUMMARY_BADGE, buildReviewSummary } from '../config/review-summary';
-import { SCENARIO_CARD_NOTE, SCENARIO_MODIFIER_LABELS } from '../config/rounds';
+import { learnerReportText, ORDER_EFFECT, VERDICT_GUIDANCE } from '../config/drill-guidance';
 import CampusMap from '../components/CampusMap.vue';
+import DrillReportScene from '../components/DrillReportScene.vue';
 import RoutePanel from '../components/RoutePanel.vue';
 import ScorePanel from '../components/ScorePanel.vue';
 import OccupancyBars from '../components/OccupancyBars.vue';
 
-const { port, fixture, saved } = defineProps<{ port: EnginePort; fixture: RoundData; saved: StoredRun }>();
-const emit = defineEmits<{ checkpoint: [runId: string, progress: RunProgress, events: RunEvent[], score: StoredRun['score']]; restart: [] }>();
+const { port, fixture, saved, runSaved } = defineProps<{ port: EnginePort; fixture: RoundData; saved: StoredRun; runSaved: boolean }>();
+const emit = defineEmits<{
+  checkpoint: [runId: string, progress: RunProgress, events: RunEvent[], score: StoredRun['score']];
+  restart: [];
+}>();
 const map = port.map;
+const runId = saved.run_id;
 
 const drill = useDrillRound(fixture, port, { judgeAction: port.judgeAction, restored: saved, clockPaused: true });
 const {
@@ -46,7 +50,6 @@ const {
   furthestRoundIndex,
   sortOpen,
   speed,
-  playing,
   deliveredReports,
   lastBatch,
   realElapsedMs,
@@ -63,36 +66,44 @@ const resultSection = ref<HTMLElement | null>(null);
 const finalSection = ref<HTMLElement | null>(null);
 const ledgerSection = ref<HTMLElement | null>(null);
 const reportsSection = ref<HTMLElement | null>(null);
+const reportBody = ref<HTMLElement | null>(null);
+const updatesSection = ref<HTMLElement | null>(null);
 const toolsSection = ref<HTMLElement | null>(null);
 
-type PrimaryPanel = 'reports' | 'map' | 'orders';
+type TaskPanel = 'reports' | 'orders' | 'updates';
+type PrimaryPanel = TaskPanel | 'map';
 type SidePanel = 'tools' | 'finish' | 'review';
 const primaryPanel = ref<PrimaryPanel>('reports');
-const sidePanel = ref<SidePanel | null>(null);
-const dockItems: { id: PrimaryPanel; label: string }[] = [
+const taskPanel = ref<TaskPanel>('reports');
+const sidePanel = ref<SidePanel | null>(saved.progress.finished && saved.progress.node === saved.progress.furthest ? 'review' : null);
+const taskTabs: { id: TaskPanel; label: string }[] = [
   { id: 'reports', label: '上报' },
-  { id: 'map', label: '地图' },
   { id: 'orders', label: '指令' },
+  { id: 'updates', label: '现场通报' },
 ];
+const reportHistoryOpen = ref(false);
 
 const started = ref(saved.progress.started);
-if (saved.progress.finished && saved.progress.node === saved.progress.furthest) sidePanel.value = 'review';
+const autoEnabled = ref(!saved.progress.started);
+const workspaceActive = ref(true);
+const pageVisible = ref(!document.hidden);
+const resetOpen = ref(false);
 const mapSection = ref<HTMLElement | null>(null);
+const campusMap = ref<InstanceType<typeof CampusMap> | null>(null);
 const orderSection = ref<HTMLElement | null>(null);
 const resetDialog = ref<HTMLDialogElement | null>(null);
 const reportChoice = ref<string | null>(null);
 const actionChoice = ref<ActionId | ''>('');
+const actionReceipt = ref<HTMLElement | null>(null);
 const routeOpen = ref(false);
 const logOpen = ref(false);
 const historyOpen = ref(false);
 const sceneName = fixture.scenario.title.replace(/（训练样例）$/, '');
-const scenarioModifierLabels = Object.entries(fixture.scenario.modifiers)
-  .filter(([, enabled]) => enabled)
-  .map(([key]) => SCENARIO_MODIFIER_LABELS[key as keyof ScenarioModifiers]);
 const heardReports = computed(() => started.value ? deliveredReports.value.length : 0);
 
 const hovered = ref<Selection | null>(null);
 const selected = ref<Selection | null>(null);
+const orderTarget = ref<Selection | null>(null);
 const highlight = computed<Selection | null>(() => hovered.value ?? selected.value);
 function toggleSelect(kind: SelectionKind, id: string): void {
   selected.value =
@@ -104,37 +115,45 @@ function clearSelection(): void {
 function onGlobalKey(event: KeyboardEvent): void {
   if (event.key === 'Escape' && !resetDialog.value?.open) clearSelection();
 }
-let active = false;
 function checkpoint(): void {
-  emit('checkpoint', saved.run_id, { node: roundIndex.value, furthest: furthestRoundIndex.value, started: started.value,
-    finished: finished.value, speed: speed.value, elapsed_ms: started.value ? drill.readClock() : 0 },
-    drill.currentEvents.value, result.value);
+  emit('checkpoint', runId, {
+    node: roundIndex.value, furthest: furthestRoundIndex.value, started: started.value,
+    finished: finished.value, speed: speed.value, elapsed_ms: started.value ? drill.readClock() : 0,
+  }, drill.currentEvents.value, result.value);
 }
-function visibility(): void {
-  if (!active) return;
-  if (document.hidden) { drill.pauseClock(); checkpoint(); }
+function pauseAndSave(): void {
+  drill.pauseClock();
+  checkpoint();
+}
+function updatePageVisibility(): void {
+  pageVisible.value = !document.hidden;
+  if (!workspaceActive.value) return;
+  if (!pageVisible.value) pauseAndSave();
   else if (started.value) drill.resumeClock();
 }
 onActivated(() => {
-  active = true;
-  visibility();
+  workspaceActive.value = true;
+  updatePageVisibility();
   window.addEventListener('keydown', onGlobalKey);
 });
 onDeactivated(() => {
-  active = false;
+  workspaceActive.value = false;
   window.removeEventListener('keydown', onGlobalKey);
-  drill.pauseClock();
-  checkpoint();
+  pauseAndSave();
 });
-watch([started, finished, roundIndex, furthestRoundIndex, speed, playing, drill.currentEvents], checkpoint);
+watch([started, finished, roundIndex, furthestRoundIndex, speed, drill.currentEvents], checkpoint);
 onMounted(() => {
-  const timer = setInterval(() => { if (active && !document.hidden && started.value && !finished.value) checkpoint(); }, 5000);
-  window.addEventListener('pagehide', checkpoint);
-  document.addEventListener('visibilitychange', visibility);
+  const timer = setInterval(() => {
+    if (workspaceActive.value && pageVisible.value && started.value && !finished.value) checkpoint();
+  }, 5000);
+  window.addEventListener('pagehide', pauseAndSave);
+  window.addEventListener('pageshow', updatePageVisibility);
+  document.addEventListener('visibilitychange', updatePageVisibility);
   onUnmounted(() => {
     clearInterval(timer);
-    window.removeEventListener('pagehide', checkpoint);
-    document.removeEventListener('visibilitychange', visibility);
+    window.removeEventListener('pagehide', pauseAndSave);
+    window.removeEventListener('pageshow', updatePageVisibility);
+    document.removeEventListener('visibilitychange', updatePageVisibility);
   });
 });
 
@@ -197,16 +216,13 @@ const realSeconds = computed(() => (realElapsedMs.value / 1000).toFixed(1));
 // 判读草稿只在提交时写入流水。
 const VERDICTS: Verdict[] = ['真报', '误报', '待核'];
 type VerdictDraft = { verdict: Verdict | ''; location: string };
-function newDrafts(): Record<string, VerdictDraft> {
-  return Object.fromEntries(fixture.ugc_reports.map(({ id }) => [id, { verdict: '', location: '' }]));
-}
-const drafts = ref(newDrafts());
+const drafts = ref<Record<string, VerdictDraft>>({});
 function draftFor(reportId: string): VerdictDraft {
   const existing = drafts.value[reportId];
   if (existing) return existing;
-  const created: VerdictDraft = { verdict: '', location: '' };
-  drafts.value = { ...drafts.value, [reportId]: created };
-  return created;
+  const latest = snapshot.value.latest_verdicts.find(({ report_id }) => report_id === reportId);
+  drafts.value[reportId] = { verdict: latest?.verdict ?? '', location: latest?.location ?? '' };
+  return drafts.value[reportId];
 }
 function locationName(id: string): string {
   return id === UNLOCATABLE ? UNLOCATABLE : endpointName(map, id);
@@ -223,11 +239,14 @@ function learnerReason(reason: string): string {
   }
   return text.replace(/A\d+/g, (id) => actionName(id));
 }
-function recordVerdict(reportId: string): void {
+async function recordVerdict(reportId: string): Promise<void> {
   const draft = drafts.value[reportId];
   if (!draft?.verdict) return;
   const location: LocationChoice | null = draft.location === '' ? null : draft.location;
-  drill.submitVerdict(reportId, draft.verdict, location);
+  if (!drill.submitVerdict(reportId, draft.verdict, location)) return;
+  reportChoice.value = reportId;
+  await nextTick();
+  reportBody.value?.scrollTo(0, 0);
 }
 const reportCards = computed(() => {
   const latest = new Map<string, VerdictAttempt>(snapshot.value.latest_verdicts.map((item) => [item.report_id, item]));
@@ -240,9 +259,51 @@ const reportCards = computed(() => {
 
 const activeReport = computed(() =>
   reportCards.value.find(({ report }) => report.id === reportChoice.value)
+    ?? reportCards.value.find(({ report, verdict }) => !verdict && lastBatch.value.some(({ id }) => id === report.id))
+    ?? reportCards.value.find(({ verdict }) => !verdict)
     ?? reportCards.value.find(({ report }) => report.id === lastBatch.value.at(-1)?.id)
     ?? reportCards.value.at(-1),
 );
+const fieldUpdates = computed(() => {
+  const updates = new Map<string, { key: string; tSim: number; text: string; target: Selection }>();
+  for (const { t_sim: tSim, event } of snapshot.value.scenario_events) {
+    if (event.type === 'ugc_appear') continue;
+    const target: Selection = event.type === 'road_hazard'
+      ? { kind: 'road', id: event.road_id }
+      : { kind: 'building', id: event.building_id };
+    const key = `${target.kind}:${target.id}`;
+    updates.delete(key);
+    updates.set(key, {
+      key, tSim, target,
+      text: event.type === 'road_hazard' ? event.description : event.title,
+    });
+  }
+  return [...updates.values()].reverse();
+});
+const freshFieldUpdate = computed(() => fieldUpdates.value.some(({ tSim }) => tSim === currentT.value));
+const editingVerdict = computed(() => {
+  const card = activeReport.value;
+  if (!card?.verdict) return false;
+  const draft = drafts.value[card.report.id];
+  return !!draft && !!draft.verdict &&
+    (draft.verdict !== card.verdict.verdict || draft.location !== (card.verdict.location ?? ''));
+});
+function discardVerdictEdit(): void {
+  const card = activeReport.value;
+  if (!card?.verdict) return;
+  drafts.value[card.report.id] = { verdict: card.verdict.verdict, location: card.verdict.location ?? '' };
+}
+const locatingReport = ref<string | null>(null);
+async function locateReport(reportId: string): Promise<void> {
+  locatingReport.value = reportId;
+  await showPanel('map');
+}
+function setReportLocation(): void {
+  if (!locatingReport.value || selected.value?.kind !== 'building') return;
+  const id = locatingReport.value;
+  draftFor(id).location = selected.value.id;
+  void selectReport(id);
+}
 // 引擎的 judgments 只在有判读动作时给判断窗；未判读上报的揭示用 windowAt 读 fixture 判断窗
 // （收到时与回合末），仅展示，不参与评分。
 const unjudgedReveal = computed(() => {
@@ -257,57 +318,91 @@ const unjudgedReveal = computed(() => {
   return { receipt, receiptAt: card.report.appears_at_sim, final };
 });
 const unreadCount = computed(() => reportCards.value.filter(({ verdict }) => !verdict).length);
+const nextUnread = computed(() => reportCards.value.find(({ verdict, report }) =>
+  !verdict && report.id !== activeReport.value?.report.id,
+));
 const targetGroups = [
   { kind: 'building', title: '楼栋', items: map.buildings },
   { kind: 'road', title: '道路', items: map.road_segments },
   { kind: 'junction', title: '校门与路口', items: map.junctions },
 ] as const;
 const targetKey = computed({
-  get: () => selected.value ? `${selected.value.kind}:${selected.value.id}` : '',
+  get: () => orderTarget.value ? `${orderTarget.value.kind}:${orderTarget.value.id}` : '',
   set: (key: string) => {
     const group = targetGroups.find(({ kind }) => key.startsWith(`${kind}:`));
-    selected.value = group ? { kind: group.kind, id: key.slice(group.kind.length + 1) } : null;
+    orderTarget.value = group ? { kind: group.kind, id: key.slice(group.kind.length + 1) } : null;
+    selected.value = orderTarget.value;
     hovered.value = null;
   },
 });
-const targetName = computed(() => {
-  if (!selected.value) return '';
-  const group = targetGroups.find(({ kind }) => kind === selected.value?.kind);
-  return group?.items.find(({ id }) => id === selected.value?.id)?.name ?? '';
-});
-const targetRoad = computed(() => selected.value?.kind === 'road'
-  ? roads.value.find((road) => road.road_id === selected.value?.id)
+function selectionName(selection: Selection | null): string {
+  if (!selection) return '';
+  const group = targetGroups.find(({ kind }) => kind === selection.kind);
+  return group?.items.find(({ id }) => id === selection.id)?.name ?? '';
+}
+const targetName = computed(() => selectionName(orderTarget.value));
+const targetRoad = computed(() => orderTarget.value?.kind === 'road'
+  ? roads.value.find((road) => road.road_id === orderTarget.value?.id)
   : undefined);
-const targetBuilding = computed(() => selected.value?.kind === 'building'
-  ? map.buildings.find((building) => building.id === selected.value?.id)
+const targetBuilding = computed(() => orderTarget.value?.kind === 'building'
+  ? map.buildings.find((building) => building.id === orderTarget.value?.id)
   : undefined);
-const applicableActions = computed(() => fixture.action_catalog.filter(({ target_kind }) => target_kind === selected.value?.kind));
+const applicableActions = computed(() => fixture.action_catalog.filter(({ target_kind }) => target_kind === orderTarget.value?.kind));
 const action = computed(() => applicableActions.value.find(({ id }) => id === actionChoice.value));
 const actionError = ref('');
+const orderDraftPending = ref(false);
+function orderCompleted(attempt: ActionAttempt): boolean {
+  return attempt.completed_at_sim !== null && currentT.value >= attempt.completed_at_sim;
+}
 const latestOrder = computed(() => {
-  const attempt = snapshot.value.actions.filter(({ target_id }) => target_id === selected.value?.id).at(-1);
+  const attempt = snapshot.value.actions.filter(({ target_id }) => target_id === orderTarget.value?.id).at(-1);
   if (!attempt) return null;
-  const name = fixture.action_catalog.find(({ id }) => id === attempt.action_id)?.name ?? attempt.action_id;
-  const complete = attempt.completed_at_sim !== null && currentT.value >= attempt.completed_at_sim;
-  return { attempt, name, complete };
+  const complete = orderCompleted(attempt);
+  const effect = ORDER_EFFECT[attempt.action_id];
+  return { attempt, name: actionName(attempt.action_id), complete, effect: complete ? effect?.done : effect?.working };
+});
+const orderMarks = computed(() => {
+  const marks = new Map<string, { key: string; target: Selection; complete: boolean; text: string }>();
+  for (const attempt of snapshot.value.actions) {
+    if (attempt.status !== 'accepted') continue;
+    const target = targetSelection(attempt.action_id, attempt.target_id);
+    if (!target) continue;
+    // 救援和警戒已有独立图层。封路和断电完成后，由路况和楼栋状态接替。
+    const complete = orderCompleted(attempt);
+    if (attempt.action_id === 'A2' || attempt.action_id === 'A3') continue;
+    if (complete && (attempt.action_id === 'A5' || attempt.action_id === 'A6')) continue;
+    const key = `${attempt.action_id}:${attempt.target_id}`;
+    marks.set(key, {
+      target, complete, key: `${key}:${attempt.seq}`,
+      text: `${actionName(attempt.action_id)} · ${complete ? '已完成' : '执行中'}`,
+    });
+  }
+  return [...marks.values()];
 });
 watch(targetKey, () => {
   actionChoice.value = '';
   actionError.value = '';
+  orderDraftPending.value = false;
 });
 watch(currentT, () => {
   reportChoice.value = null;
   actionError.value = '';
 });
-function onAction(): void {
-  if (!started.value || !canWrite.value || !action.value || !selected.value) return;
+async function onAction(): Promise<void> {
+  if (!started.value || !canWrite.value || !action.value || !orderTarget.value) return;
   actionError.value = '';
   try {
-    drill.submitAction(action.value.id, selected.value.id);
+    if (drill.submitAction(action.value.id, orderTarget.value.id)) orderDraftPending.value = false;
   } catch (error) {
     if (!(error instanceof ActionEngineError)) throw error;
     actionError.value = error.message;
   }
+  await nextTick();
+  actionReceipt.value?.scrollIntoView({ block: 'nearest' });
+}
+function discardOrderEdit(): void {
+  actionChoice.value = '';
+  orderDraftPending.value = false;
 }
 
 // ---- 信息流：投放 / 判读 / 动作 / 排序 / 路况按 stamp 合并，只读派生，不伪造 ----
@@ -519,6 +614,7 @@ async function jumpToMiss(row: MissRow): Promise<void> {
   }
   if (row.select) {
     selected.value = row.select;
+    orderTarget.value = row.select;
     hovered.value = null;
     await showPanel('orders');
     return;
@@ -550,13 +646,18 @@ function saveSort(): void {
   if (drill.submitSort(sortDraft.value.slice(0, sortCount.value))) sortExpanded.value = false;
 }
 async function showPanel(panel: PrimaryPanel): Promise<void> {
+  if (panel !== 'map') {
+    locatingReport.value = null;
+    taskPanel.value = panel;
+  }
   primaryPanel.value = panel;
   sidePanel.value = null;
   await nextTick();
-  const element = { reports: reportsSection.value, map: mapSection.value, orders: orderSection.value }[panel];
+  const element = { reports: reportsSection.value, map: mapSection.value, orders: orderSection.value, updates: updatesSection.value }[panel];
   element?.focus({ preventScroll: true });
 }
 async function showSide(panel: SidePanel): Promise<void> {
+  locatingReport.value = null;
   sidePanel.value = panel;
   await nextTick();
   const element = { tools: toolsSection.value, finish: finalSection.value, review: resultSection.value }[panel];
@@ -565,14 +666,60 @@ async function showSide(panel: SidePanel): Promise<void> {
 }
 async function selectReport(id: string): Promise<void> {
   reportChoice.value = id;
+  reportHistoryOpen.value = false;
   await showPanel('reports');
-  reportsSection.value?.scrollTo(0, 0);
+  reportBody.value?.scrollTo(0, 0);
+}
+function orderForSelection(): void {
+  if (!selected.value || selected.value.kind === 'junction') return;
+  orderTarget.value = selected.value;
+  void showPanel('orders');
+}
+async function showTargetOnMap(target: Selection, actionId?: ActionId): Promise<void> {
+  selected.value = target;
+  hovered.value = null;
+  if (actionId === 'A2') layers.value.rescue = true;
+  if (actionId === 'A3') layers.value.cordon = true;
+  if (!actionId) layers.value.disaster = true;
+  await showPanel('map');
+  campusMap.value?.focusTarget(target);
 }
 async function advanceRound(): Promise<void> {
+  if (!canNext.value || !canWrite.value) return;
+  const focus = document.activeElement;
+  const focusWasInReports = reportsSection.value?.contains(focus);
+  locatingReport.value = null;
   drill.nextRound();
   if (sortOpen.value) await showSide('finish');
-  else if (primaryPanel.value === 'reports' && !sidePanel.value && lastBatch.value.length) reportsSection.value?.scrollTo(0, 0);
+  else if (!sidePanel.value && (lastBatch.value.length || freshFieldUpdate.value)) {
+    await nextTick();
+    reportBody.value?.scrollTo(0, 0);
+    if (focusWasInReports && !focus?.isConnected) reportsSection.value?.focus({ preventScroll: true });
+  }
 }
+const autoHold = computed(() => {
+  if (!autoEnabled.value) return '已暂停';
+  if (unreadCount.value) return `等候判读 · ${unreadCount.value} 条`;
+  if (editingVerdict.value) return '正在编辑判读';
+  if (orderDraftPending.value) return '正在编辑指令';
+  if (locatingReport.value) return '正在沙盘上定位';
+  if (sidePanel.value || resetOpen.value || !workspaceActive.value || !pageVisible.value) return '暂缓推进';
+  return '';
+});
+const awaitingFirstReport = computed(() => !deliveredReports.value.length && !fieldUpdates.value.length);
+const autoDelay = computed(() => awaitingFirstReport.value
+  ? 1200
+  : Math.max(8000, (freshFieldUpdate.value ? 24000 : 15000) / speed.value));
+const autoReady = computed(() => started.value && canWrite.value && canNext.value && !autoHold.value);
+const autoCycle = ref(0);
+watch([autoReady, autoDelay, currentT, () => drill.currentEvents.value.length], (_values, _old, onCleanup) => {
+  if (!autoReady.value) return;
+  autoCycle.value += 1;
+  const timer = setTimeout(() => {
+    if (autoReady.value) void advanceRound();
+  }, autoDelay.value);
+  onCleanup(() => clearTimeout(timer));
+});
 async function finishDrill(): Promise<void> {
   if (!drill.finishDrill()) return;
   await showSide('review');
@@ -594,18 +741,20 @@ async function planRoute(): Promise<void> {
 function beginDrill(): void {
   drill.resetDrill();
   started.value = true;
-  drill.resumeClock();
+  updatePageVisibility();
   clearSelection();
   hovered.value = null;
   void showPanel('reports');
 }
 function resetDrill(): void {
   resetDialog.value?.close();
-  drill.pauseClock();
-  checkpoint();
+  pauseAndSave();
   emit('restart');
 }
-
+function openReset(): void {
+  resetOpen.value = true;
+  resetDialog.value?.showModal();
+}
 </script>
 
 <template>
@@ -616,18 +765,39 @@ function resetDrill(): void {
         <h2>{{ sceneName }}</h2>
       </div>
       <div v-if="started" class="scene-progress" aria-label="当前推演进度">
-        <div>
+        <div class="scene-clock">
           <span class="clock-reading" id="round-now">T+{{ formatSimTime(currentT) }}</span>
-          <span class="round-label">第 {{ roundIndex + 1 }} / {{ rounds.length }} 回合</span>
+          <span class="round-label">{{ roundIndex + 1 }} / {{ rounds.length }} 回合</span>
         </div>
         <button type="button" class="btn work-small desktop-tools" :aria-pressed="sidePanel === 'tools'"
-          @click="sidePanel === 'tools' ? showPanel('orders') : showSide('tools')">工具</button>
-        <button v-if="!finished && canWrite && canNext" type="button" class="btn work-primary"
-          id="round-next" @click="advanceRound">推进时间 <span aria-hidden="true">→</span></button>
+          @click="sidePanel === 'tools' ? showPanel(taskPanel) : showSide('tools')">工具</button>
+        <div v-if="canWrite && canNext" class="playback-controls">
+          <button id="round-play" type="button" class="btn work-small" :aria-pressed="autoEnabled"
+            aria-describedby="auto-status" @click="autoEnabled = !autoEnabled">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path v-if="autoEnabled" d="M6 3.5v9m4-9v9" />
+              <path v-else d="m6 3.5 6 4.5-6 4.5z" />
+            </svg>
+            <span>{{ autoEnabled ? '暂停' : '自动推进' }}</span>
+            <span v-if="autoReady" :key="autoCycle" class="auto-progress" aria-hidden="true"
+              :style="{ '--auto-duration': autoDelay + 'ms' }"></span>
+          </button>
+          <button id="round-next" type="button" class="btn work-small"
+            :title="unreadCount ? '可跳过未判读的上报，稍后仍可查看' : '立即进入下一回合'" @click="advanceRound">
+            下一回合 <span aria-hidden="true">→</span>
+          </button>
+          <span id="auto-status" class="auto-status" role="status">
+            {{ autoReady ? (awaitingFirstReport ? '接收首报中' : '自动推进中') : autoHold }}
+          </span>
+        </div>
         <button v-else-if="roundIndex !== furthestRoundIndex" type="button" class="btn work-primary"
           @click="returnToCurrent">{{ finished ? '返回复盘' : '返回当前回合' }}</button>
         <button v-else-if="sortOpen || reviewResult" type="button" class="btn work-primary"
           @click="showSide(sortOpen ? 'finish' : 'review')">{{ sortOpen ? '结算' : '复盘' }}</button>
+      </div>
+      <div v-else class="scene-progress">
+        <button type="button" class="btn work-small desktop-tools" :aria-pressed="sidePanel === 'tools'"
+          @click="sidePanel === 'tools' ? showPanel(taskPanel) : showSide('tools')">工具</button>
       </div>
     </header>
 
@@ -696,10 +866,11 @@ function resetDrill(): void {
     </section>
 
     <section v-if="started && sortOpen" v-show="sidePanel === 'finish'" ref="finalSection" class="work-panel final-panel side-panel" tabindex="-1" aria-labelledby="final-heading">
-      <div>
+      <div class="panel-heading">
         <h2 id="final-heading">结束推演</h2>
-        <p class="work-muted">可选出最紧急的 {{ sortCount }} 条上报，也可以直接查看评分。</p>
+        <button type="button" class="btn work-small" @click="showPanel(taskPanel)">返回任务</button>
       </div>
+      <p class="work-muted">可选出最紧急的 {{ sortCount }} 条上报，也可以直接查看评分。</p>
       <div class="work-controls">
         <button v-if="!snapshot.sorting" type="button" class="btn" id="sort-entry" :aria-expanded="sortExpanded" @click="sortExpanded = !sortExpanded">排定上报优先级</button>
         <span v-else id="sort-saved" class="work-chip" role="status">排序已记录 {{ snapshot.sorting.ordered_report_ids.join(' → ') }}</span>
@@ -711,95 +882,12 @@ function resetDrill(): void {
           <select v-model="sortDraft[index]">
             <option value="">选择上报</option>
             <option v-for="report in deliveredReports" :key="report.id" :value="report.id"
-              :disabled="sortDraft.some((id, slot) => slot !== index && id === report.id)">{{ report.id }} · {{ report.text }}</option>
+                :disabled="sortDraft.some((id, slot) => slot !== index && id === report.id)">{{ report.id }} · {{ learnerReportText(report.text) }}</option>
           </select>
         </label>
         <button type="submit" class="btn work-primary" :disabled="!sortReady">记录排序</button>
       </form>
     </section>
-
-      <section ref="reportsSection" class="work-panel report-panel" tabindex="-1" aria-labelledby="drill-reports-heading">
-        <div v-if="!started" class="drill-intro">
-          <h2 id="drill-reports-heading">今晚，你来值班</h2>
-          <p>上报会陆续送到。读完消息，到地图上找楼栋或道路，再决定怎么处置。发现新线索时，可以改判。</p>
-          <article class="active-report scenario-card" tabindex="0" role="group" aria-label="本期剧本">
-            <div class="active-report-meta">
-              <span class="report-ref">本期剧本</span>
-              <span class="report-training">训练模拟数据</span>
-            </div>
-            <h3 class="scenario-title">{{ fixture.scenario.title }}</h3>
-            <ul class="scenario-facts">
-              <li>情境：{{ scenarioModifierLabels.join(' · ') }}</li>
-              <li>起始对象：{{ endpointName(map, fixture.scenario.start_building_id) }}</li>
-              <li>模拟时长 {{ formatSimTime(fixture.scenario.t_end) }} · {{ fixture.scenario.nodes.length }} 个回合节点 · {{ fixture.ugc_reports.length }} 条模拟上报</li>
-            </ul>
-            <p class="scenario-note">{{ SCENARIO_CARD_NOTE }}</p>
-          </article>
-          <p class="intro-meta">全程约 5 分钟 · 免登录 · 浏览器本地会话 · 训练模拟</p>
-          <button id="start-drill" type="button" class="btn work-primary" @click="beginDrill">开始一次推演</button>
-        </div>
-        <template v-else>
-          <div class="panel-heading">
-            <h2 id="drill-reports-heading">模拟上报</h2>
-            <span class="work-chip" aria-live="polite">{{ finished ? '已结算' : `${unreadCount} 条待判读` }}</span>
-          </div>
-          <p class="report-count work-muted">已收到 {{ heardReports }} / {{ totalReports }} 条 · 随推演时间陆续到达</p>
-          <article v-if="activeReport" :key="activeReport.report.id" class="active-report" :data-report="activeReport.report.id">
-            <div class="active-report-meta">
-              <span class="report-ref">{{ activeReport.report.id }} · {{ formatSimTime(activeReport.report.appears_at_sim) }}</span>
-              <span class="report-training">训练模拟数据</span>
-            </div>
-            <p class="reported-text">{{ activeReport.report.text }}</p>
-            <p v-if="activeReport.verdict" class="report-recorded" role="status">
-              已记录「{{ activeReport.verdict.verdict }}」{{ activeReport.verdict.location === null ? '' : ` · ${locationName(activeReport.verdict.location)}` }}
-            </p>
-            <form v-if="canWrite" class="verdict-form" @submit.prevent="recordVerdict(activeReport.report.id)">
-              <fieldset>
-                <legend>你的判断</legend>
-                <div class="verdict-choices">
-                  <label v-for="verdict in VERDICTS" :key="verdict">
-                    <input v-model="draftFor(activeReport.report.id).verdict" type="radio" name="verdict" :value="verdict" />
-                    <span>{{ verdict }}</span>
-                  </label>
-                </div>
-              </fieldset>
-              <label class="work-field">
-                <span>上报位置 <small>可选</small></span>
-                <select v-model="draftFor(activeReport.report.id).location">
-                  <option value="">选择楼栋或无法定位</option>
-                  <option v-for="item in locations" :key="item.id" :value="item.id">{{ item.name }}</option>
-                </select>
-              </label>
-              <button v-if="selected?.kind === 'building'" type="button" class="btn work-small"
-                @click="draftFor(activeReport.report.id).location = selected.id">用图上选中的楼栋定位</button>
-              <button type="submit" class="btn work-primary" :disabled="!draftFor(activeReport.report.id).verdict">
-                {{ activeReport.verdict ? '记录改判' : '记录判读' }}
-              </button>
-            </form>
-            <div v-if="activeReport.assessment" class="report-assessment">
-              <strong>{{ !activeReport.assessment.attempt ? '本轮未判读' : activeReport.assessment.correct ? '判断合理' : '判断有误' }}</strong>
-              <p v-if="activeReport.assessment.window">当时可判为「{{ activeReport.assessment.window.expected }}」。{{ activeReport.assessment.window.reason }}</p>
-              <template v-else-if="unjudgedReveal">
-                <p>收到时（{{ simStamp(unjudgedReveal.receiptAt) }}）可判为「{{ unjudgedReveal.receipt.expected }}」。{{ unjudgedReveal.receipt.reason }}</p>
-                <p v-if="unjudgedReveal.final">自 {{ simStamp(unjudgedReveal.final.at) }} 起可判为「{{ unjudgedReveal.final.window.expected }}」。{{ unjudgedReveal.final.window.reason }}</p>
-              </template>
-              <p>参考位置 {{ activeReport.assessment.expected_location === null ? '未设定' : locationName(activeReport.assessment.expected_location) }}</p>
-            </div>
-          </article>
-          <div v-if="reportCards.length > 1" class="report-history">
-            <h3>已收到的上报</h3>
-            <ul>
-              <li v-for="{ report, verdict } in [...reportCards].reverse()" :key="report.id">
-                <button type="button" :aria-pressed="report.id === activeReport?.report.id"
-                  :data-report-id="report.id" @click="selectReport(report.id)">
-                  <span class="report-history-ref">{{ report.id }} <small>{{ verdict?.verdict ?? (finished ? '未判读' : '待判读') }}</small></span>
-                  <span class="report-history-text">{{ report.text }}</span>
-                </button>
-              </li>
-            </ul>
-          </div>
-        </template>
-      </section>
 
       <section ref="mapSection" class="work-panel map-panel" tabindex="-1" aria-labelledby="drill-map-title">
         <div class="panel-heading map-heading">
@@ -815,13 +903,19 @@ function resetDrill(): void {
             @click="planRoute">规划路径</button>
         </div>
         <div class="work-map">
-          <CampusMap :map="map" :roads="roads" :highlight="highlight" :selected="selected"
-            :overlay="overlay" :layers="layers" :route="route" @select="toggleSelect" @clear="clearSelection" />
+          <CampusMap ref="campusMap" :map="map" :roads="roads" :highlight="highlight" :selected="selected"
+            :overlay="overlay" :layers="layers" :route="route" :order-marks="orderMarks" @select="toggleSelect" @clear="clearSelection" />
         </div>
         <div class="map-status">
-          <p v-if="selected"><strong>已选中</strong> {{ targetName }}</p>
-          <p v-else>点选楼栋、道路或校门查看详情</p>
-          <button v-if="started && selected" type="button" class="btn work-small" @click="showPanel('orders')">查看对象与指令</button>
+          <p v-if="selected"><strong>正在查看</strong> {{ selectionName(selected) }}</p>
+          <p v-else>{{ locatingReport ? '请点选上报提到的楼栋' : '点选楼栋、道路或校门查看详情' }}</p>
+          <template v-if="locatingReport">
+            <button type="button" class="btn work-small" @click="showPanel('reports')">返回上报</button>
+            <button type="button" class="btn work-small work-primary" :disabled="selected?.kind !== 'building'"
+              @click="setReportLocation">用此楼栋定位</button>
+          </template>
+          <button v-else-if="started && selected && selected.kind !== 'junction'" type="button" class="btn work-small"
+            @click="orderForSelection">对此处下达指令</button>
         </div>
         <ul v-if="situation.length" class="map-situation" aria-label="当前态势">
           <li v-for="entry in situation" :key="entry.key">
@@ -834,83 +928,225 @@ function resetDrill(): void {
         </div>
       </section>
 
-      <section ref="orderSection" class="work-panel order-panel" tabindex="-1" aria-labelledby="drill-order-heading">
-        <div class="panel-heading">
-          <h2 id="drill-order-heading">下达指令</h2>
-          <span v-if="started && !canWrite" class="work-chip">只读</span>
-        </div>
-        <div v-if="!started" class="order-empty">
-          <p>三步玩法：</p>
-          <ol class="order-steps">
-            <li>读上报并判读：真报 / 误报 / 待核</li>
-            <li>在地图点选楼栋或道路，下达处置指令</li>
-            <li>末回合排出最紧急的上报，结束并查看评分</li>
-          </ol>
-        </div>
-        <template v-else>
-          <label class="work-field">
-            <span>处置对象</span>
-            <select v-model="targetKey" id="drill-target">
-              <option value="">从地图点选，或在此选择</option>
-              <optgroup v-for="group in targetGroups" :key="group.kind" :label="group.title">
-                <option v-for="item in group.items" :key="item.id" :value="`${group.kind}:${item.id}`">{{ item.name }}</option>
-              </optgroup>
-            </select>
-          </label>
-          <p v-if="!selected" class="order-empty">选中后会显示适用于该对象的指令。收到上报后，可直接处置。</p>
-          <template v-else>
-            <div v-if="targetRoad" class="selected-road">
-              <p>自然灾情 <strong>{{ targetRoad.hazard ? HAZARD_LABEL[targetRoad.hazard] : '无' }}</strong></p>
-              <p>正式封闭 <strong>{{ targetRoad.formally_closed ? '已封闭' : '未封闭' }}</strong></p>
-            </div>
-            <p v-if="selected.kind === 'junction'" class="order-empty">校门和路口可用于规划路径。下达指令时请选择楼栋或道路。</p>
-            <form v-else-if="canWrite" class="order-form" @submit.prevent="onAction">
-              <fieldset>
-                <legend>选择指令</legend>
-                <div class="order-options">
-                  <label v-for="item in applicableActions" :key="item.id">
-                    <input v-model="actionChoice" type="radio" name="order" :value="item.id" />
-                    <span>{{ item.name }} <small>{{ item.duration_sim }} 秒</small></span>
-                  </label>
-                </div>
-              </fieldset>
-              <button type="submit" class="btn work-primary" id="submit-order" :disabled="!action">
-                {{ action ? `对${targetName}下达${action.name}` : '下达指令' }}
-              </button>
-            </form>
-            <p v-else class="order-empty">{{ finished ? '本轮已结算。可查看当时的指令状态。' : '正在回看。回到当前回合可继续下达指令。' }}</p>
-            <p v-if="actionError" class="order-feedback rejected" role="alert">{{ actionError }}</p>
-            <div v-else-if="latestOrder" id="action-feedback" class="order-feedback" role="status"
-              :class="{ rejected: latestOrder.attempt.status === 'rejected' }">
-              <strong>{{ latestOrder.name }} · {{ latestOrder.attempt.status === 'rejected' ? '未下达' : latestOrder.complete ? '已完成' : '执行中' }}</strong>
-              <p v-if="latestOrder.attempt.status === 'rejected'">{{ learnerReason(latestOrder.attempt.reject_reason ?? '') }}</p>
-              <p v-else-if="latestOrder.attempt.completed_at_sim !== null">
-                {{ latestOrder.complete ? '完成于' : '预计完成于' }} T+{{ formatSimTime(latestOrder.attempt.completed_at_sim) }}
-              </p>
-            </div>
-            <details v-if="targetBuilding" class="target-details">
-              <summary>楼栋资料</summary>
-              <dl>
-                <dt>分区</dt><dd>{{ targetBuilding.zone }}</dd>
-                <dt>用途</dt><dd>{{ CATEGORY_STYLE[targetBuilding.category].label }}</dd>
-                <dt>楼层</dt><dd>{{ formatBuildingFloors(targetBuilding) }}</dd>
-                <dt>估算容量</dt><dd>{{ targetBuilding.capacity }} 人</dd>
-                <template v-if="targetBuilding.risk_tag">
-                  <dt>模拟风险</dt><dd>{{ targetBuilding.risk_tag }}</dd>
-                </template>
-              </dl>
-            </details>
-          </template>
-        </template>
-        <button v-if="started" type="button" class="btn work-small" @click="showPanel('map')">返回校园沙盘</button>
-      </section>
+      <div class="work-panel task-deck" :class="{ 'task-deck-started': started }">
+        <nav v-if="started" class="task-tabs" aria-label="当前任务">
+          <button v-for="{ id, label } in taskTabs" :key="id" type="button" class="task-tab"
+            :aria-pressed="taskPanel === id" @click="showPanel(id)">
+            {{ label }}
+            <span v-if="id === 'reports' && !finished && unreadCount" class="task-count">{{ unreadCount }}</span>
+            <span v-if="id === 'orders' && orderDraftPending" class="task-draft">草稿</span>
+            <span v-if="id === 'updates' && fieldUpdates.length" class="task-count" :class="{ 'task-count-fresh': freshFieldUpdate }">
+              {{ freshFieldUpdate ? '新' : fieldUpdates.length }}
+            </span>
+          </button>
+        </nav>
 
-    <section v-if="started" v-show="sidePanel === 'tools'" ref="toolsSection" class="work-panel drill-tools side-panel"
+        <section v-show="taskPanel === 'reports'" ref="reportsSection" class="task-page report-panel" tabindex="-1" aria-labelledby="drill-reports-heading">
+          <div v-if="!started" class="drill-intro">
+            <DrillReportScene />
+            <div>
+              <p class="intro-meta">校园值班台 · {{ simStamp(currentT) }}</p>
+              <h2 id="drill-reports-heading">{{ deliveredReports.length ? '收到现场上报' : '值班台已就绪' }}</h2>
+            </div>
+            <ol class="briefing-steps">
+              <li><strong>读消息</strong><span>看清上报说了什么，线索不够可以标为待核。</span></li>
+              <li><strong>需要处置时去沙盘</strong><span>点选楼栋或路段，再确认指令的对象。</span></li>
+              <li><strong>看变化</strong><span>新上报会暂停时间，记录判读后自动继续。</span></li>
+            </ol>
+            <button id="start-drill" type="button" class="btn work-primary" @click="beginDrill">
+              {{ deliveredReports.length ? '查看首报' : '开始值班' }} <span aria-hidden="true">→</span>
+            </button>
+          </div>
+          <template v-else>
+            <div class="panel-heading task-heading">
+              <div>
+                <h2 id="drill-reports-heading">{{ reportHistoryOpen ? '上报记录' : '当前上报' }}</h2>
+                <p class="work-muted">已收到 {{ heardReports }} / {{ totalReports }} 条</p>
+              </div>
+              <button v-if="reportCards.length > 1 || reportHistoryOpen" type="button" class="btn work-small"
+                :aria-expanded="reportHistoryOpen" aria-controls="drill-report-history"
+                @click="reportHistoryOpen = !reportHistoryOpen">{{ reportHistoryOpen ? '返回当前上报' : '全部上报' }}</button>
+            </div>
+            <article v-if="activeReport" v-show="!reportHistoryOpen" :key="activeReport.report.id" class="active-report" :data-report="activeReport.report.id">
+              <div ref="reportBody" class="task-scroll report-content">
+                <div class="report-message">
+                  <div class="active-report-meta">
+                    <span class="report-ref">{{ activeReport.report.id }} · {{ simStamp(activeReport.report.appears_at_sim) }}</span>
+                    <span class="report-training">{{ activeReport.verdict ? '已判读' : '待判读' }}</span>
+                  </div>
+                  <p class="reported-text">{{ learnerReportText(activeReport.report.text) }}</p>
+                  <p v-if="activeReport.verdict" :key="activeReport.verdict.seq" class="report-recorded" role="status">
+                    <span aria-hidden="true">✓</span> {{ activeReport.verdict.supersedes_seq === null ? '已记录' : '已更新' }}「{{ activeReport.verdict.verdict }}」{{ activeReport.verdict.location === null ? '' : ` · ${locationName(activeReport.verdict.location)}` }}
+                  </p>
+                </div>
+                <div v-if="canWrite" class="report-tools">
+                  <button type="button" class="work-text-btn" @click="showPanel('map')">查看沙盘 →</button>
+                  <button v-if="activeReport.verdict && nextUnread" type="button" class="work-text-btn"
+                    @click="selectReport(nextUnread.report.id)">下一条待判读 →</button>
+                </div>
+                <details v-if="canWrite" class="report-location">
+                  <summary>
+                    <span>定位练习</span>
+                    <small>{{ draftFor(activeReport.report.id).location ? locationName(draftFor(activeReport.report.id).location) : '可跳过' }}</small>
+                  </summary>
+                  <p class="work-muted">练习在沙盘上找出上报提到的楼栋，结果单列展示。下令时另选实际处置对象。</p>
+                  <label class="work-field">
+                    <span>上报提到的楼栋</span>
+                    <select v-model="draftFor(activeReport.report.id).location">
+                      <option value="">选择楼栋或无法定位</option>
+                      <option v-for="item in locations" :key="item.id" :value="item.id">{{ item.name }}</option>
+                    </select>
+                  </label>
+                  <button type="button" class="work-text-btn" @click="locateReport(activeReport.report.id)">到沙盘上找楼栋 →</button>
+                </details>
+                <figure class="reported-scene">
+                  <DrillReportScene :text="learnerReportText(activeReport.report.text)" />
+                  <figcaption>上报内容示意 · 核实结果见现场通报</figcaption>
+                </figure>
+                <div v-if="activeReport.assessment" class="report-assessment">
+                  <strong>{{ !activeReport.assessment.attempt ? '本轮未判读' : activeReport.assessment.correct ? '判断合理' : '判断有误' }}</strong>
+                  <p v-if="activeReport.assessment.window">当时可判为「{{ activeReport.assessment.window.expected }}」。{{ activeReport.assessment.window.reason }}</p>
+                  <template v-else-if="unjudgedReveal">
+                    <p>收到时（{{ simStamp(unjudgedReveal.receiptAt) }}）可判为「{{ unjudgedReveal.receipt.expected }}」。{{ unjudgedReveal.receipt.reason }}</p>
+                    <p v-if="unjudgedReveal.final">自 {{ simStamp(unjudgedReveal.final.at) }} 起可判为「{{ unjudgedReveal.final.window.expected }}」。{{ unjudgedReveal.final.window.reason }}</p>
+                  </template>
+                  <p>参考位置 {{ activeReport.assessment.expected_location === null ? '未设定' : locationName(activeReport.assessment.expected_location) }}</p>
+                </div>
+              </div>
+              <form v-if="canWrite" class="verdict-form task-footer" @submit.prevent="recordVerdict(activeReport.report.id)">
+                <fieldset>
+                  <legend>根据当前线索，你怎么判断？</legend>
+                  <div class="verdict-choices">
+                    <label v-for="verdict in VERDICTS" :key="verdict">
+                      <input v-model="draftFor(activeReport.report.id).verdict" type="radio" name="verdict" :value="verdict" />
+                      <span>{{ verdict }} <small>{{ VERDICT_GUIDANCE[verdict] }}</small></span>
+                    </label>
+                  </div>
+                </fieldset>
+                <div class="task-actions">
+                  <button type="submit" class="btn work-primary" :disabled="!draftFor(activeReport.report.id).verdict">
+                    {{ activeReport.verdict ? '记录改判' : '记录判读' }}
+                  </button>
+                  <button v-if="editingVerdict" type="button" class="btn work-small" @click="discardVerdictEdit">取消改判</button>
+                </div>
+              </form>
+            </article>
+            <div v-else class="task-scroll report-wait">
+              <DrillReportScene />
+              <p class="work-muted">{{ autoEnabled ? '正在接收第一条现场上报…' : '时间已暂停。恢复自动推进或进入下一回合即可继续接收。' }}</p>
+            </div>
+            <div v-show="reportHistoryOpen" id="drill-report-history" class="task-scroll report-history">
+              <ul>
+                <li v-for="{ report, verdict } in [...reportCards].reverse()" :key="report.id">
+                  <button type="button" :aria-pressed="report.id === activeReport?.report.id"
+                    :data-report-id="report.id" @click="selectReport(report.id)">
+                    <span class="report-history-ref">{{ report.id }} <small>{{ verdict?.verdict ?? (finished ? '未判读' : '待判读') }}</small></span>
+                    <span class="report-history-text">{{ learnerReportText(report.text) }}</span>
+                  </button>
+                </li>
+              </ul>
+            </div>
+          </template>
+        </section>
+
+        <section v-show="taskPanel === 'orders'" ref="orderSection" class="task-page order-panel" tabindex="-1" aria-labelledby="drill-order-heading">
+          <div class="panel-heading task-heading">
+            <h2 id="drill-order-heading">下达指令</h2>
+            <span v-if="!canWrite" class="work-chip">只读</span>
+            <button v-else type="button" class="btn work-small" @click="showPanel('map')">去沙盘选对象</button>
+          </div>
+          <div class="task-scroll order-content">
+            <label class="work-field">
+              <span>处置对象</span>
+              <select v-model="targetKey" id="drill-target">
+                <option value="">从地图点选，或在此选择</option>
+                <optgroup v-for="group in targetGroups" :key="group.kind" :label="group.title">
+                  <option v-for="item in group.items" :key="item.id" :value="`${group.kind}:${item.id}`">{{ item.name }}</option>
+                </optgroup>
+              </select>
+            </label>
+            <p v-if="!orderTarget" class="order-empty">选择要处置的楼栋或路段，即可查看能下达的指令。</p>
+            <template v-else>
+              <div v-if="targetRoad" class="selected-road">
+                <p>自然灾情 <strong>{{ targetRoad.hazard ? HAZARD_LABEL[targetRoad.hazard] : '无' }}</strong></p>
+                <p>正式封闭 <strong>{{ targetRoad.formally_closed ? '已封闭' : '未封闭' }}</strong></p>
+              </div>
+              <p v-if="orderTarget.kind === 'junction'" class="order-empty">校门和路口可用于规划路径。下达指令时请选择楼栋或道路。</p>
+              <form v-else-if="canWrite" id="drill-order-form" class="order-form" @submit.prevent="onAction">
+                <fieldset>
+                  <legend>选择指令</legend>
+                  <div class="order-options">
+                    <label v-for="item in applicableActions" :key="item.id">
+                      <input v-model="actionChoice" type="radio" name="order" :value="item.id" @change="orderDraftPending = true" />
+                      <span>{{ item.name }} <small>模拟 {{ item.duration_sim }} 秒</small></span>
+                    </label>
+                  </div>
+                </fieldset>
+              </form>
+              <p v-else class="order-empty">{{ finished ? '本轮已结算。可查看当时的指令状态。' : '正在回看。回到当前回合可继续下达指令。' }}</p>
+              <p v-if="actionError" ref="actionReceipt" class="order-feedback rejected" role="alert">{{ actionError }}</p>
+              <div v-else-if="latestOrder" ref="actionReceipt" id="action-feedback" class="order-feedback"
+                :key="`${latestOrder.attempt.seq}:${latestOrder.complete}`" role="status"
+                :class="{ rejected: latestOrder.attempt.status === 'rejected' }">
+                <strong>{{ latestOrder.name }} · {{ latestOrder.attempt.status === 'rejected' ? '未下达' : latestOrder.complete ? '已完成' : '已下达，执行中' }}</strong>
+                <p v-if="latestOrder.attempt.status === 'rejected'">{{ learnerReason(latestOrder.attempt.reject_reason ?? '') }}</p>
+                <template v-else>
+                  <p>{{ latestOrder.effect }}</p>
+                  <p v-if="latestOrder.attempt.completed_at_sim !== null" class="order-time">
+                    {{ latestOrder.complete ? '完成于' : '预计完成于' }} T+{{ formatSimTime(latestOrder.attempt.completed_at_sim) }}
+                  </p>
+                  <button type="button" class="work-text-btn"
+                    @click="orderTarget && showTargetOnMap(orderTarget, latestOrder.attempt.action_id)">在沙盘查看 →</button>
+                </template>
+              </div>
+              <details v-if="targetBuilding" class="target-details">
+                <summary>楼栋资料</summary>
+                <dl>
+                  <dt>分区</dt><dd>{{ targetBuilding.zone }}</dd>
+                  <dt>用途</dt><dd>{{ CATEGORY_STYLE[targetBuilding.category].label }}</dd>
+                  <dt>楼层</dt><dd>{{ formatBuildingFloors(targetBuilding) }}</dd>
+                  <dt>估算容量</dt><dd>{{ targetBuilding.capacity }} 人</dd>
+                  <template v-if="targetBuilding.risk_tag">
+                    <dt>模拟风险</dt><dd>{{ targetBuilding.risk_tag }}</dd>
+                  </template>
+                </dl>
+              </details>
+            </template>
+          </div>
+          <div v-if="canWrite && orderTarget && orderTarget.kind !== 'junction'" class="task-footer task-actions">
+            <button type="submit" form="drill-order-form" class="btn work-primary" id="submit-order" :disabled="!action">
+              {{ action ? `对${targetName}下达${action.name}` : '下达指令' }}
+            </button>
+            <button v-if="orderDraftPending" type="button" class="btn work-small" @click="discardOrderEdit">取消选择</button>
+          </div>
+        </section>
+
+        <section v-show="taskPanel === 'updates'" ref="updatesSection" class="task-page updates-panel" tabindex="-1"
+          aria-labelledby="drill-updates-heading">
+          <div class="panel-heading task-heading">
+            <h2 id="drill-updates-heading">现场通报</h2>
+          </div>
+          <div class="task-scroll">
+            <ul v-if="fieldUpdates.length" class="field-updates">
+              <li v-for="entry in fieldUpdates" :key="`${entry.key}:${entry.tSim}`" class="field-update">
+                <span class="report-ref">{{ simStamp(entry.tSim) }} · {{ selectionName(entry.target) }}</span>
+                <p>{{ entry.text }}</p>
+                <button type="button" class="work-text-btn" @click="showTargetOnMap(entry.target)">在沙盘定位 →</button>
+              </li>
+            </ul>
+            <p v-else class="order-empty">暂时没有现场通报。有核实结果或道路状态变化时，这里会更新。</p>
+          </div>
+        </section>
+      </div>
+
+    <section v-show="sidePanel === 'tools'" ref="toolsSection" class="work-panel drill-tools side-panel"
       tabindex="-1" aria-labelledby="tools-heading">
       <div class="panel-heading">
         <h2 id="tools-heading">推演工具</h2>
-        <button type="button" class="btn work-small" @click="showPanel('orders')">返回指令</button>
+        <button type="button" class="btn work-small" @click="showPanel(taskPanel)">返回任务</button>
       </div>
+      <slot name="run-tools" :save="checkpoint" />
+      <template v-if="started">
       <details class="work-panel tool-panel" :open="routeOpen" @toggle="routeOpen = ($event.target as HTMLDetailsElement).open">
         <summary>规划路径</summary>
         <div class="tool-content">
@@ -934,7 +1170,7 @@ function resetDrill(): void {
         </div>
       </details>
       <details class="work-panel tool-panel" :open="historyOpen" @toggle="historyOpen = ($event.target as HTMLDetailsElement).open">
-        <summary>时间线与播放</summary>
+        <summary>时间线与推进速度</summary>
         <div class="tool-content">
           <p class="work-muted">可回看已经到达的回合。回看期间无法下令。</p>
           <div class="round-progress" role="group" aria-label="已到达的回合">
@@ -943,15 +1179,13 @@ function resetDrill(): void {
               @click="drill.goToRound(round.index)">{{ formatSimTime(round.node.t_sim) }}</button>
           </div>
           <div class="work-controls">
-            <button type="button" class="btn" id="round-play" :disabled="!canNext || !canWrite" :aria-pressed="playing"
-              @click="drill.togglePlay()">{{ playing ? '暂停播放' : '自动推进' }}</button>
             <label class="work-field speed-field">
-              <span>播放速度</span>
+              <span>自动推进速度</span>
               <select v-model.number="speed" id="speed-select">
                 <option v-for="value in speeds" :key="value" :value="value">{{ value }}×</option>
               </select>
             </label>
-            <button type="button" class="btn" id="drill-reset" @click="resetDialog?.showModal()">重置本轮</button>
+            <button type="button" class="btn" id="drill-reset" @click="openReset">重置本轮</button>
           </div>
         </div>
       </details>
@@ -989,22 +1223,26 @@ function resetDrill(): void {
           </div>
         </section>
       </details>
+      </template>
     </section>
     </div>
 
     <nav class="drill-dock" aria-label="推演快捷操作">
-      <button v-for="{ id, label } in dockItems" :key="id" type="button" class="btn work-small"
-        :aria-pressed="!sidePanel && primaryPanel === id" @click="showPanel(id)">{{ label }}</button>
-      <button v-if="started" type="button" class="btn work-small dock-tools"
-        :aria-pressed="sidePanel === 'tools'" @click="sidePanel === 'tools' ? showPanel('orders') : showSide('tools')">工具</button>
+      <button type="button" class="btn work-small" :aria-pressed="!sidePanel && primaryPanel !== 'map'" @click="showPanel(taskPanel)">
+        任务<span v-if="started && !finished && unreadCount" class="dock-count">{{ unreadCount }}</span>
+      </button>
+      <button type="button" class="btn work-small" :aria-pressed="!sidePanel && primaryPanel === 'map'" @click="showPanel('map')">沙盘</button>
+      <button type="button" class="btn work-small dock-tools"
+        :aria-pressed="sidePanel === 'tools'" @click="sidePanel === 'tools' ? showPanel(taskPanel) : showSide('tools')">工具</button>
     </nav>
 
-    <dialog ref="resetDialog" class="work-dialog" aria-labelledby="reset-heading">
+    <dialog ref="resetDialog" class="work-dialog" aria-labelledby="reset-heading" @close="resetOpen = false">
       <h2 id="reset-heading">重置本轮推演？</h2>
-      <p>将保留旧轮次记录，并用相同剧本开启一次新的训练。</p>
+      <p v-if="runSaved">旧轮次会保留在本机，并用相同剧本开启一次新训练。</p>
+      <p v-else>当前进度可能未保存到本机。可先在工具中导出本轮，再重新开始。</p>
       <form method="dialog" class="work-controls">
         <button class="btn" autofocus>继续本轮</button>
-        <button class="btn work-danger" type="button" @click="resetDrill">清空并重置</button>
+        <button class="btn work-danger" type="button" @click="resetDrill">重新开始</button>
       </form>
     </dialog>
   </div>

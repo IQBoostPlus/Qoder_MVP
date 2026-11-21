@@ -24,6 +24,7 @@ const props = withDefaults(
     overlay?: MapOverlay;
     layers?: Record<LayerKey, boolean>;
     route?: RouteResult | null;
+    orderMarks?: readonly { key: string; target: Selection; text: string; complete: boolean }[];
   }>(),
   {
     highlight: null,
@@ -31,6 +32,7 @@ const props = withDefaults(
     overlay: () => EMPTY_OVERLAY,
     layers: () => ({ disaster: true, cordon: true, rescue: true }),
     route: null,
+    orderMarks: () => [],
   },
 );
 
@@ -374,6 +376,18 @@ function resetViewClean(): void {
   clearHover();
   moveCamera(sceneBounds.value);
 }
+function focusTarget(target: Selection): void {
+  const anchor = target.kind === 'building'
+    ? buildingViews.value.find(({ id }) => id === target.id)?.markAnchor
+    : roadViews.value.find(({ id }) => id === target.id)?.midScreen;
+  if (!anchor) return;
+  const { w, h } = sceneBounds.value;
+  const width = w / 1.55;
+  const height = h / 1.55;
+  clearHover();
+  moveCamera({ x: anchor.x - width / 2, y: anchor.y - height / 2, w: width, h: height });
+}
+defineExpose({ focusTarget });
 onBeforeUnmount(stopCamera);
 function onWheel(e: WheelEvent): void {
   stopCamera();
@@ -1313,7 +1327,7 @@ const sceneObjects = computed<SceneObject[]>(() => {
 // ---- 应急指挥标记（覆盖层，不参与体量遮挡） ----
 interface MarkView {
   key: string;
-  type: 'disaster' | 'cordon' | 'rescue' | 'hazard' | 'closed' | 'powercut';
+  type: 'disaster' | 'cordon' | 'rescue' | 'hazard' | 'closed' | 'powercut' | 'order' | 'order-done';
   x: number;
   y: number;
   dx: number;
@@ -1323,7 +1337,7 @@ interface MarkView {
   range: string | null;
 }
 const MARK_PRIO: Record<MarkView['type'], number> = {
-  disaster: 0, powercut: 1, closed: 2, hazard: 3, cordon: 4, rescue: 5,
+  disaster: 0, powercut: 1, closed: 2, hazard: 3, cordon: 4, rescue: 5, order: 6, 'order-done': 7,
 };
 function markRect(m: MarkView): LabelRect {
   const ss = screenScale.value;
@@ -1361,6 +1375,12 @@ const markViews = computed<MarkView[]>(() => {
     if (rv.closed) {
       push(`x-${rv.id}`, 'closed', rv.midScreen.x, rv.midScreen.y, rv.closedAt === null ? '封闭' : `封闭 ${simStamp(rv.closedAt)}`, null);
     }
+  }
+  for (const order of props.orderMarks) {
+    const anchor = order.target.kind === 'building'
+      ? buildingViews.value.find(({ id }) => id === order.target.id)?.markAnchor
+      : roadViews.value.find(({ id }) => id === order.target.id)?.midScreen;
+    if (anchor) push(order.key, order.complete ? 'order-done' : 'order', anchor.x, anchor.y, order.text, null);
   }
   // 散开文字框时保留引线，指回实际楼栋或路段锚点。
   const placed: LabelRect[] = [];
@@ -1768,6 +1788,7 @@ const plinthDrop = computed(() => {
           <g :transform="`translate(${m.x + m.dx * screenScale}, ${m.y + m.dy * screenScale}) scale(${screenScale})`" :class="`mark mark-${m.type}`">
             <line x1="0" y1="-12" :x2="-m.dx" :y2="-m.dy" class="mark-stem" />
             <circle :cx="-m.dx" :cy="-m.dy" r="2.7" class="mark-anchor" />
+            <circle v-if="m.type !== 'hazard'" :cx="-m.dx" :cy="-m.dy" r="10" class="mark-change-ring" />
             <template v-if="m.type === 'closed'">
               <rect :x="-m.pillW / 2" y="-30" :width="m.pillW" height="18" rx="4" class="mark-pill" />
               <g class="barrier-glyph">
@@ -1781,6 +1802,8 @@ const plinthDrop = computed(() => {
               <path v-if="m.type === 'disaster' || m.type === 'hazard'" d="M 0 -24 L 0 -19 M 0 -16.5 L 0 -16" class="mark-glyph" />
               <path v-else-if="m.type === 'rescue'" d="M -3.5 -20 L 3.5 -20 M 0 -23.5 L 0 -16.5" class="mark-glyph" />
               <path v-else-if="m.type === 'powercut'" d="M 1 -24 L -2 -19.5 L 1 -19.5 L -1 -16" class="mark-glyph" />
+              <path v-else-if="m.type === 'order'" d="M 0 -24 V -20 L 3 -18.5" class="mark-glyph" />
+              <path v-else-if="m.type === 'order-done'" d="M -3.5 -20 L -1 -17.5 L 4 -22.5" class="mark-glyph" />
               <path v-else d="M -3.5 -20 L 3.5 -20 M -3.5 -23 L 3.5 -17" class="mark-glyph" />
               <rect :x="-m.pillW / 2" y="-46" :width="m.pillW" height="16" rx="4" class="mark-pill" />
               <text x="0" y="-34.5" text-anchor="middle">{{ m.text }}</text>
@@ -2083,6 +2106,21 @@ const plinthDrop = computed(() => {
 .mark-powercut .mark-pill { stroke: var(--edge-red); }
 .mark-closed .mark-pill { stroke: var(--red); }
 .mark-closed text { fill: var(--red); font-family: var(--font-mono); }
+.mark-order, .mark-disaster { --mark-state: var(--blue); }
+.mark-order-done, .mark-rescue { --mark-state: var(--green); }
+.mark-cordon { --mark-state: var(--amber); }
+.mark-closed, .mark-powercut { --mark-state: var(--red); }
+:is(.mark-order, .mark-order-done) :is(.mark-dot, .mark-anchor, text) { fill: var(--mark-state); }
+:is(.mark-order, .mark-order-done) .mark-pill { stroke: var(--mark-state); }
+:is(.mark-order, .mark-order-done) .mark-glyph { fill: none; stroke: #fff; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+.mark-change-ring {
+  fill: none; stroke: var(--mark-state); stroke-width: 1.7; opacity: 0;
+  transform-box: fill-box; transform-origin: center; animation: mark-change 800ms ease-out both;
+}
+@keyframes mark-change {
+  from { transform: scale(.55); opacity: .92; }
+  to { transform: scale(2.2); opacity: 0; }
+}
 .barrier-glyph rect { fill: var(--red); }
 .barrier-glyph line { stroke: #f5f8fc; stroke-width: 2; }
 
@@ -2161,7 +2199,7 @@ const plinthDrop = computed(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .bld-ground-ring, .vol-roof-tint, .vol-band, .road-selection { transition: none; }
-  .selection-cue, .route-sweep { display: none; }
+  .selection-cue, .route-sweep, .mark-change-ring { display: none; }
   .route-line, .mark, .mark-dot { animation: none; }
 }
 
