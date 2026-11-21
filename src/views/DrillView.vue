@@ -6,6 +6,8 @@ import { windowAt } from '../fixture-port';
 import { SORT_LIMIT } from '../score-engine';
 import type { EnginePort } from '../engine-port';
 import type { RoundData } from '../scenario-generation/contracts';
+import type { RunEvent } from '../contracts';
+import type { RunProgress, StoredRun } from '../run-store/contracts';
 import { useDrillRound } from '../composables/useDrillRound';
 import { CATEGORY_STYLE, HAZARD_LABEL, formatBuildingFloors } from '../config/categories';
 import {
@@ -27,10 +29,11 @@ import RoutePanel from '../components/RoutePanel.vue';
 import ScorePanel from '../components/ScorePanel.vue';
 import OccupancyBars from '../components/OccupancyBars.vue';
 
-const { port, fixture } = defineProps<{ port: EnginePort; fixture: RoundData }>();
+const { port, fixture, saved } = defineProps<{ port: EnginePort; fixture: RoundData; saved: StoredRun }>();
+const emit = defineEmits<{ checkpoint: [runId: string, progress: RunProgress, events: RunEvent[], score: StoredRun['score']]; restart: [] }>();
 const map = port.map;
 
-const drill = useDrillRound(fixture, port, { judgeAction: port.judgeAction });
+const drill = useDrillRound(fixture, port, { judgeAction: port.judgeAction, restored: saved, clockPaused: true });
 const {
   rounds,
   tEnd,
@@ -72,7 +75,8 @@ const dockItems: { id: PrimaryPanel; label: string }[] = [
   { id: 'orders', label: '指令' },
 ];
 
-const started = ref(false);
+const started = ref(saved.progress.started);
+if (saved.progress.finished && saved.progress.node === saved.progress.furthest) sidePanel.value = 'review';
 const mapSection = ref<HTMLElement | null>(null);
 const orderSection = ref<HTMLElement | null>(null);
 const resetDialog = ref<HTMLDialogElement | null>(null);
@@ -100,20 +104,39 @@ function clearSelection(): void {
 function onGlobalKey(event: KeyboardEvent): void {
   if (event.key === 'Escape' && !resetDialog.value?.open) clearSelection();
 }
-function warnBeforeLeaving(event: BeforeUnloadEvent): void {
-  if (!started.value || (furthestRoundIndex.value === 0 && drill.currentEvents.value.length === 0)) return;
-  event.preventDefault();
-  event.returnValue = '';
+let active = false;
+function checkpoint(): void {
+  emit('checkpoint', saved.run_id, { node: roundIndex.value, furthest: furthestRoundIndex.value, started: started.value,
+    finished: finished.value, speed: speed.value, elapsed_ms: started.value ? drill.readClock() : 0 },
+    drill.currentEvents.value, result.value);
+}
+function visibility(): void {
+  if (!active) return;
+  if (document.hidden) { drill.pauseClock(); checkpoint(); }
+  else if (started.value) drill.resumeClock();
 }
 onActivated(() => {
+  active = true;
+  visibility();
   window.addEventListener('keydown', onGlobalKey);
 });
 onDeactivated(() => {
+  active = false;
   window.removeEventListener('keydown', onGlobalKey);
-  if (playing.value) drill.togglePlay();
+  drill.pauseClock();
+  checkpoint();
 });
-onMounted(() => window.addEventListener('beforeunload', warnBeforeLeaving));
-onUnmounted(() => window.removeEventListener('beforeunload', warnBeforeLeaving));
+watch([started, finished, roundIndex, furthestRoundIndex, speed, playing, drill.currentEvents], checkpoint);
+onMounted(() => {
+  const timer = setInterval(() => { if (active && !document.hidden && started.value && !finished.value) checkpoint(); }, 5000);
+  window.addEventListener('pagehide', checkpoint);
+  document.addEventListener('visibilitychange', visibility);
+  onUnmounted(() => {
+    clearInterval(timer);
+    window.removeEventListener('pagehide', checkpoint);
+    document.removeEventListener('visibilitychange', visibility);
+  });
+});
 
 const layers = ref<Record<LayerKey, boolean>>({ disaster: true, cordon: true, rescue: true });
 
@@ -571,29 +594,18 @@ async function planRoute(): Promise<void> {
 function beginDrill(): void {
   drill.resetDrill();
   started.value = true;
+  drill.resumeClock();
   clearSelection();
   hovered.value = null;
   void showPanel('reports');
 }
 function resetDrill(): void {
   resetDialog.value?.close();
-  drill.resetDrill();
-  sortExpanded.value = false;
-  sortDraft.value = [];
-  drafts.value = newDrafts();
-  actionError.value = '';
-  feedFilter.value = '全部';
-  reportChoice.value = null;
-  actionChoice.value = '';
-  clearSelection();
-  hovered.value = null;
-  routeFrom.value = fixture.scenario.start_building_id;
-  routeTo.value = '';
-  routeOpen.value = false;
-  logOpen.value = false;
-  historyOpen.value = false;
-  void showPanel('reports');
+  drill.pauseClock();
+  checkpoint();
+  emit('restart');
 }
+
 </script>
 
 <template>
@@ -989,7 +1001,7 @@ function resetDrill(): void {
 
     <dialog ref="resetDialog" class="work-dialog" aria-labelledby="reset-heading">
       <h2 id="reset-heading">重置本轮推演？</h2>
-      <p>这会清除本轮的判读、指令与评分，并回到第一条上报。</p>
+      <p>将保留旧轮次记录，并用相同剧本开启一次新的训练。</p>
       <form method="dialog" class="work-controls">
         <button class="btn" autofocus>继续本轮</button>
         <button class="btn work-danger" type="button" @click="resetDrill">清空并重置</button>

@@ -1,0 +1,3 @@
+PostgreSQL: D2, D5 baseline and D6 migrations applied.
+Two runs read back every field, with 20 distinct report rows and 39 events.
+Four first writers: one commit, three conflicts. Wrong owner denied, conflicting seq and partial writes rolled back.

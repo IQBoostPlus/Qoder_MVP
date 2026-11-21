@@ -1,6 +1,7 @@
 import { GENERATION_WAIT_MS, type FallbackReason, type GenerationRequest, type GenerationResult, type Issue } from '../src/scenario-generation/contracts.ts';
 import { assembleBundle, fallbackResult, parseCandidate, validateBundle, ValidationError } from '../src/scenario-generation/bundle.ts';
 import { GenerationLedger, type BudgetSlot } from './generation-ledger.ts';
+import { generateReports } from './report-stage.ts';
 import { generationPrompt, ProviderError, type GenerationProvider } from './generation-provider.ts';
 
 export type GenerationReply =
@@ -8,7 +9,7 @@ export type GenerationReply =
   | { status: 'pending'; calls: number; upstream_state: GenerationResult['upstream_state'] }
   | { status: 'missing' };
 
-export function createGenerationService(ledger: GenerationLedger, provider?: GenerationProvider, waitMs = GENERATION_WAIT_MS) {
+export function createGenerationService(ledger: GenerationLedger, provider?: GenerationProvider, waitMs = GENERATION_WAIT_MS, enableReports = false) {
   function read(request: GenerationRequest): GenerationReply {
     if (!ledger.matches(request)) return { status: 'missing' };
     const result = ledger.result(request);
@@ -55,10 +56,20 @@ export function createGenerationService(ledger: GenerationLedger, provider?: Gen
         ledger.markComplete(request.run_id, slot);
         const candidate = parseCandidate(raw, request);
         const bundle = validateBundle(assembleBundle(request, candidate, 'generated'), request, 'generated');
-        return finish({
+        const generated: GenerationResult = {
           ...fallbackResult(request, null), bundle, provider: activeProvider.name,
           selection: 'generated', scenario_source: 'generated',
-        });
+        };
+        if (!enableReports) return finish(generated);
+        const runId = request.run_id;
+        return finish(await generateReports(generated, {
+          reserve: (name) => ledger.reserve(runId, name),
+          prepare: () => bounded(() => activeProvider.prepare(request, signal)),
+          markSent: (name, sessionId) => ledger.markSent(runId, name, sessionId),
+          send: (sessionId, text) => bounded(() => activeProvider.send(sessionId, text, signal)),
+          complete: (name) => ledger.markComplete(runId, name),
+          usage: () => ledger.usage(runId),
+        }, signal));
       } catch (error) {
         if (signal.aborted) return fallback('timeout');
         if (error instanceof ValidationError) {
@@ -82,7 +93,7 @@ export function createGenerationService(ledger: GenerationLedger, provider?: Gen
         reply.result.provider !== provider.name) return reply;
     const previous = reply.result;
     const attempt = ledger.unresolved(request.run_id);
-    if (!attempt) return reply;
+    if (!attempt || previous.report_source !== 'preset' || attempt.slot === 'reports') return reply;
     let raw: string | null;
     try { raw = await provider.read(attempt.session_id, AbortSignal.timeout(2500)); }
     catch { return reply; }

@@ -1,4 +1,5 @@
-import { fallbackResult, record, validateBundle, validateRequest } from './bundle';
+import { validateReportBatch } from './reports';
+import { assembleBundle, fallbackResult, record, validateBundle, validateCandidate, validateRequest } from './bundle';
 import { GENERATION_WAIT_MS, SESSION_LIMIT, type FallbackReason, type GenerationRequest, type GenerationResult, type Issue } from './contracts';
 
 const sessionKey = 'campus-drill-generation-v1';
@@ -32,6 +33,7 @@ function validateResponse(result: unknown, request: GenerationRequest): Generati
   if (!record(result) || JSON.stringify(validateRequest(result.request)) !== JSON.stringify(request)) throw new Error('Wrong response request');
   const { selection, scenario_source, report_source, provider, fallback_reason, elapsed_ms, calls, shared_retry_used, upstream_state } = result;
   const issues: unknown = result.issues;
+  const reports = result.reports;
   function validIssue(issue: unknown): issue is Issue {
     return record(issue) && typeof issue.path === 'string' && issue.path.length <= 255 &&
       typeof issue.code === 'string' && issue.code.length <= 100 && typeof issue.message === 'string' && issue.message.length <= 255;
@@ -40,14 +42,34 @@ function validateResponse(result: unknown, request: GenerationRequest): Generati
     (selection === 'generated' ? scenario_source !== 'generated' || fallback_reason !== null || provider === null
       : scenario_source !== 'fallback' || !reasons.some((reason) => reason === fallback_reason)) ||
     (scenario_source !== 'generated' && scenario_source !== 'fallback') ||
-    report_source !== 'preset' || (provider !== null && provider !== 'simulated' && provider !== 'qoder') ||
+    (report_source !== 'preset' && report_source !== 'generated' && report_source !== 'fallback') || (provider !== null && provider !== 'simulated' && provider !== 'qoder') ||
     typeof elapsed_ms !== 'number' || !Number.isFinite(elapsed_ms) || elapsed_ms < 0 ||
     (calls !== null && (typeof calls !== 'number' || !Number.isInteger(calls) || calls < 0 || calls > 4)) ||
     (shared_retry_used !== null && typeof shared_retry_used !== 'boolean') ||
     (upstream_state !== 'complete' && upstream_state !== 'not_sent' && upstream_state !== 'unknown') ||
     !Array.isArray(issues) || issues.length > 2 || !issues.every(validIssue)) throw new Error('Invalid generation metadata');
+  let bundle;
+  let stage: GenerationResult['reports'];
+  if (report_source === 'preset') {
+    bundle = validateBundle(result.bundle, request, scenario_source);
+    if (reports !== undefined) throw new Error('Unexpected report generation metadata');
+  } else {
+    if (selection !== 'generated' || !record(result.bundle) || !record(reports) ||
+        reports.request_id !== request.request_id || reports.provider !== provider ||
+        (report_source === 'generated' ? reports.fallback_reason !== null : !reasons.some((reason) => reason === reports.fallback_reason))) {
+      throw new Error('Invalid report generation metadata');
+    }
+    if (report_source === 'fallback') bundle = validateBundle(result.bundle, request, scenario_source);
+    else {
+      const { ugc_reports, ...rest } = result.bundle;
+      const preset = assembleBundle(request, validateCandidate(rest.candidate, request), scenario_source);
+      bundle = validateBundle({ ...rest, ugc_reports: preset.ugc_reports }, request, scenario_source);
+      bundle = { ...bundle, ugc_reports: validateReportBatch(ugc_reports, bundle.ugc_reports) };
+    }
+    stage = { request_id: request.request_id, provider, fallback_reason: reasons.find((reason) => reason === reports.fallback_reason) ?? null };
+  }
   return {
-    request, bundle: validateBundle(result.bundle, request, scenario_source), selection, scenario_source,
+    request, bundle, selection, scenario_source, reports: stage,
     report_source, provider, fallback_reason: reasons.find((reason) => reason === fallback_reason) ?? null,
     elapsed_ms, calls, shared_retry_used, upstream_state, issues,
   };

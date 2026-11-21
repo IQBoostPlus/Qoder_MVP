@@ -17,11 +17,14 @@
     "check:d3": "npm run check:d2 && tsx scripts/validate-d3.ts && tsx scripts/validate-canonical.ts --rejudge-actions",
     "check:d4": "npm run check:d3 && tsx scripts/validate-d4.ts",
     "check:d5": "npm run check:d4 && tsx scripts/validate-d5.ts && tsx scripts/verify-d5-cloud-port.mjs && node scripts/verify-d5-cloud-ledger.mjs",
+    "build:sites:d6": "node scripts/build-d6-sites.mjs",
+    "check:d6": "npm run check:d5 && tsx scripts/validate-d6.ts",
     "scenario:server": "tsx server/index.ts"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
     "@vitejs/plugin-vue": "^6.0.11",
+    "rolldown": "1.2.19",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vite": "^8.3.8",

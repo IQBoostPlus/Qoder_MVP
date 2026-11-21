@@ -1,0 +1,166 @@
+{
+  "rounds": [
+    {
+      "round": 1,
+      "export_matches_cloud": true,
+      "run_id": "7d42a808-a920-4932-9550-9889b85e9807",
+      "scenario_id": "d6-5a49930b-bdc1-4d20-b968-83e13a49f855",
+      "revision": 137,
+      "template_id": "TPL-NIGHT-DORM-01",
+      "finished": true,
+      "reports": [
+        "U1",
+        "U2",
+        "U3",
+        "U4",
+        "U5",
+        "U6",
+        "U7",
+        "U8",
+        "U9",
+        "U10"
+      ],
+      "priorities": [
+        4,
+        8,
+        7,
+        1,
+        6,
+        10,
+        2,
+        3,
+        9,
+        5
+      ],
+      "events": 11,
+      "event_report_ids": [
+        "U1",
+        "U2",
+        "U3",
+        "U4",
+        "U5",
+        "U6",
+        "U7",
+        "U8",
+        "U9",
+        "U10"
+      ],
+      "cloud_score": {
+        "total": 61,
+        "discrimination": 90,
+        "response": 75,
+        "coverage": 10,
+        "violation": 100
+      },
+      "recalculated_score": {
+        "total": 61,
+        "discrimination": 90,
+        "response": 75,
+        "coverage": 10,
+        "violation": 100
+      },
+      "scores_match": true,
+      "exported_scores_match": true,
+      "location": {
+        "correct": 6,
+        "total": 10,
+        "percent": 60
+      },
+      "sorting": {
+        "actual": [],
+        "expected": [
+          "U4",
+          "U7",
+          "U8"
+        ],
+        "correct": false
+      },
+      "wrong_report_ids": [
+        "U1"
+      ],
+      "response_seconds": 105
+    },
+    {
+      "round": 2,
+      "export_matches_cloud": true,
+      "run_id": "95095ef9-5908-47a8-bbd3-3142a1eb6763",
+      "scenario_id": "d6-ee50336b-0511-45be-a89b-d76490fa5a52",
+      "revision": 42,
+      "template_id": "TPL-LAB-LEAK-01",
+      "finished": true,
+      "reports": [
+        "U1",
+        "U2",
+        "U3",
+        "U4",
+        "U5",
+        "U6",
+        "U7",
+        "U8",
+        "U9",
+        "U10"
+      ],
+      "priorities": [
+        4,
+        8,
+        7,
+        1,
+        6,
+        10,
+        2,
+        3,
+        9,
+        5
+      ],
+      "events": 11,
+      "event_report_ids": [
+        "U1",
+        "U2",
+        "U3",
+        "U4",
+        "U5",
+        "U6",
+        "U7",
+        "U8",
+        "U9",
+        "U10"
+      ],
+      "cloud_score": {
+        "total": 55,
+        "discrimination": 100,
+        "response": 25,
+        "coverage": 14.285714285714286,
+        "violation": 100
+      },
+      "recalculated_score": {
+        "total": 55,
+        "discrimination": 100,
+        "response": 25,
+        "coverage": 14.285714285714286,
+        "violation": 100
+      },
+      "scores_match": true,
+      "exported_scores_match": true,
+      "location": {
+        "correct": 10,
+        "total": 10,
+        "percent": 100
+      },
+      "sorting": {
+        "actual": [],
+        "expected": [
+          "U4",
+          "U7",
+          "U8"
+        ],
+        "correct": false
+      },
+      "wrong_report_ids": [],
+      "response_seconds": 195
+    }
+  ],
+  "report_key_collisions": 0,
+  "report_keys_distinct": 20,
+  "round_ids_distinct": 2,
+  "scenario_ids_distinct": 2
+}

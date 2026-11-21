@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createD5Service } from '../cloud-verify/functions/d5-service.mjs';
 import { createD5Routes } from '../cloud-verify/functions/d5-routes.mjs';
 import { fallbackResult } from '../cloud-verify/functions/d5-bundle.mjs';
+import { application } from '../cloud-verify/functions/routes.mjs';
 
 const objects = new Map();
 const storage = {
@@ -196,6 +197,7 @@ class BackendError extends Error {
   }
 }
 const user = { user_id: 'd5-test-user' };
+const appRoute = application({ db, storage, BackendError, requireUser: () => user });
 const routeHash = Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(user.user_id))).toString('hex');
 const route = createD5Routes({ db, storage, BackendError });
 function invoke(path, method = 'GET', input = request, query = '') {
@@ -241,6 +243,8 @@ console.log('D5 regression: pre-migration Storage run remains readable and count
 
 const beforeDisable = outboundRequests;
 const dbSizesBefore = ['d5_generation_runs', 'd5_generation_slots', 'd5_generation_results'].map((table) => db.tableRows(table).length);
+const legacyAgentPaths = ['/api/d1/agent', '/api/d2/agent/init', '/api/d2/agent/send'];
+const postLegacyAgent = (path) => appRoute({ request: new Request(`https://test.invalid/functions/v1/app${path}`, { method: 'POST' }) });
 env.set('D5_ENABLE_TEST_ROUTES', '1');
 for (const disabledFlag of [undefined, '0', 'true']) {
   if (disabledFlag === undefined) env.delete('D5_ENABLE_QODER');
@@ -256,6 +260,8 @@ for (const disabledFlag of [undefined, '0', 'true']) {
   assert.equal(freshBody.result.selection, 'fallback');
   assert.equal(freshBody.result.fallback_reason, 'not_configured');
   assert.equal(freshBody.result.calls, 0);
+  assert.equal(freshBody.result.upstream_state, 'not_sent');
+  assert.equal(freshBody.result.bundle.scenario.template_id, fresh.template_id);
   assert.equal((await invoke('/api/d5/scenario', 'GET', fresh, queryFor(fresh))).status, 404);
   const cached = await invoke('/api/d5/scenario', 'GET', savedRun, queryFor(savedRun));
   assert.deepEqual((await cached.json()).result, savedRunResult.result);
@@ -268,6 +274,9 @@ for (const disabledFlag of [undefined, '0', 'true']) {
   for (const [endpoint, method] of [['seed', 'POST'], ['last-slot', 'POST'], ['interrupt', 'POST'], ['upstream', 'GET']]) {
     await assert.rejects(invoke('/api/d5/test/' + endpoint, method), { message: 'd5_test_routes_disabled' });
   }
+  for (const path of legacyAgentPaths) {
+    await assert.rejects(postLegacyAgent(path), { message: 'agent_test_routes_disabled', status: 404 });
+  }
 }
 const normalGet = globalThis.Deno.env.get;
 globalThis.Deno.env.get = () => { throw new Error('env denied'); };
@@ -278,7 +287,10 @@ assert.deepEqual(['d5_generation_runs', 'd5_generation_slots', 'd5_generation_re
 env.set('D5_ENABLE_QODER', '1');
 env.delete('D5_ENABLE_TEST_ROUTES');
 await assert.rejects(invoke('/api/d5/test/seed', 'POST'), { message: 'd5_test_routes_disabled' });
+for (const path of legacyAgentPaths) {
+  await assert.rejects(postLegacyAgent(path), { message: 'agent_test_routes_disabled', status: 404 });
+}
 assert.equal((await (await invoke('/api/d5/diag')).json()).real_generation_enabled, true);
-console.log('D5 route mock: default/off flags and env denial, zero outbound fetches and zero database writes with credentials present; cached, legacy and test-route behavior agree');
+console.log('Sites route mock: off flags, zero outbound fetches and zero ledger writes with credentials present; cached reads and D1/D2/D5 test gates verified');
 console.log('D5 service mock: database claim, dedup, conflict, last-slot race, interrupt and recovery passed');
 console.log(JSON.stringify({ sessions, interrupted: interrupted.interrupted, recovered_state: recovered.result.upstream_state }));

@@ -37,3 +37,13 @@ node scripts/validate-d2-db.mjs $d2tools
 ## 云端复验
 
 私有站点已按同一迁移与映射完成云端复验。结构快照、迁移 / apply 操作 ID、冻结时间、校验和及 20 / 28 地图逐字段结果见 [D2 云端验收](../docs/qoder-evidence/D2-2026-11-18-cloud-acceptance.md)。该站点保持 private；D1 验证表保留，未重建或覆盖业务表。并发多实例的预算原子性仍为 pending。
+
+## D5 与 D6 增量
+
+在新 Sites 环境先核对实际数据库能力、表与列，再按以下依赖顺序规划缺少的迁移。
+
+1. [D2 基础表](migrations/d2-campus-app.sql) 提供八张业务表。
+2. [D5 三表基线](migrations/d5-generation-ledger-baseline.sql) 保存生成请求、调用槽位和终态，供同源生成服务及关闭态台账检查。
+3. [D6 Sites 纯 DDL](migrations/d6-run-persistence-sites.sql) 增加 `scenarios` 和 `runs` 的冻结包、进度、归属与提交标记。A 站的迁移 `d6-run-persistence-2026-11-21-v1` 已应用，只需核对，不重复执行。B 从自己的站点结构判断缺项。
+
+[本地事务函数版](migrations/d6-run-persistence.sql) 用于本地 PostgreSQL，选择该版本的本地环境只应用其中一份 D6 增量。Sites 当前采用 `runs` 单行提交标记，修订 0 表示未提交的首次写入。在同一 `run_id` 相同序号下保留已有载荷，补写剩余事件后才推进标记。[映射与授权边界](../docs/handoff-d6.md#数据库映射与部署边界) · [云端验收](../docs/qoder-evidence/D6-2026-11-21-cloud-acceptance.md)

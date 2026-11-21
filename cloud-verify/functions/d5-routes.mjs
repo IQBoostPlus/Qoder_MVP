@@ -9,7 +9,7 @@ async function digest(value) {
   return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function envEnabled(name) {
+export function envEnabled(name) {
   try {
     return globalThis.Deno?.env.get(name) === '1';
   } catch {
@@ -77,7 +77,7 @@ export function createD5Routes({ db, storage, BackendError }) {
       if (path === '/api/d5/scenario' && (method === 'POST' || method === 'GET')) {
         const input = method === 'POST' ? await readBody(request) : query(url);
         const reply = !enabled ? await service.disabled(userHash, input, method)
-          : method === 'GET' ? await service.recover(userHash, input) : await service.generate(userHash, input);
+          : method === 'GET' ? await service.recover(userHash, input) : await service.generate(userHash, input, envEnabled('D6_ENABLE_REPORTS'));
         return json(reply, reply.status === 'pending' ? 202 : reply.status === 'missing' ? 404 : 200);
       }
       if (path === '/api/d5/diag' && method === 'GET') {

@@ -5,6 +5,7 @@ import {
   GENERATION_WAIT_MS, ValidationError, assembleBundle, fallbackResult, generationPrompt,
   parseCandidate, validateBundle, validateRequest,
 } from './d5-bundle.mjs';
+import { generateReports } from './d6-shared.mjs';
 import { createDatabaseLedger } from './d5-db-ledger.mjs';
 
 const ORIGIN = 'https://api.qoder.com.cn';
@@ -229,7 +230,7 @@ export function createD5Service({ db, storage }) {
   if (!db) throw new Error('database_not_configured');
   const ledgerFor = (userHash, runId) => createDatabaseLedger({ db, storage, userHash, runId });
 
-  async function generate(userHash, input) {
+  async function generate(userHash, input, includeReports = false) {
     const request = validateRequest(input);
     const ledger = ledgerFor(userHash, request.run_id);
     const started = performance.now();
@@ -296,7 +297,23 @@ export function createD5Service({ db, storage }) {
         const candidate = parseCandidate(text, request);
         const bundle = validateBundle(assembleBundle(request, candidate, 'generated'), request, 'generated');
         trace.candidate = candidate;
-        return finish({ ...fallbackResult(request, null), bundle, provider: 'qoder', selection: 'generated', scenario_source: 'generated' });
+        const generated = { ...fallbackResult(request, null), bundle, provider: 'qoder', selection: 'generated', scenario_source: 'generated' };
+        if (!includeReports) return finish(generated);
+        return finish(await generateReports(generated, {
+          reserve: (name) => ledger.reserve(name),
+          prepare: () => prepareSession(binding, request, deadline.signal),
+          markSent: async (name, sessionId) => {
+            const saved = await ledger.markSent(name, sessionId, { instance: INSTANCE, model: binding.model, phase: 'reports', request_id: request.request_id });
+            if (saved) trace.phases[name] = { phase: 'reports', session: await redactId(sessionId) };
+            return saved;
+          },
+          send: async (sessionId, prompt) => {
+            await sendPrompt(sessionId, prompt, deadline.signal);
+            return waitReply(sessionId, deadline.signal);
+          },
+          complete: (name) => ledger.markComplete(name),
+          usage: () => ledger.usage(),
+        }, deadline.signal));
       } catch (error) {
         if (deadline.signal.aborted) return fallback('timeout', 'qoder');
         if (error instanceof ValidationError) {
@@ -331,7 +348,7 @@ export function createD5Service({ db, storage }) {
     if (!stored) return { status: 'pending', ...(await ledger.usage()) };
     if (stored.result.upstream_state !== 'unknown' || stored.result.provider !== 'qoder' || stored.final) return ready(stored.result);
     const attempt = await ledger.unresolved();
-    if (!attempt) return ready(stored.result);
+    if (!attempt || stored.result.report_source !== 'preset' || attempt.slot === 'reports') return ready(stored.result);
     let text;
     const deadline = bound(2500);
     try {

@@ -8,7 +8,6 @@ import { getTemplate, templates } from '../scenario-generation/templates';
 const emit = defineEmits<{ start: [result: GenerationResult]; canonical: [] }>();
 const chosen = ref<TemplateId>(templates[0]!.id);
 const template = computed(() => getTemplate(chosen.value)!);
-const modifiers = ref<Modifier[]>([...template.value.modifiers]);
 const phase = ref('');
 const count = ref(0);
 const pending = ref<GenerationRequest | null>(null);
@@ -41,13 +40,12 @@ function choose(id: TemplateId): void {
   if (chosen.value === id) return;
   abandonWait();
   chosen.value = id;
-  modifiers.value = [...template.value.modifiers];
 }
 
 function request(): GenerationRequest {
   return {
     run_id: crypto.randomUUID(), request_id: crypto.randomUUID(), template_id: template.value.id,
-    modifiers: template.value.modifiers.filter((option) => modifiers.value.includes(option)),
+    modifiers: [...template.value.modifiers],
   };
 }
 
@@ -98,19 +96,14 @@ async function generate(recover: boolean): Promise<void> {
     <ul>
       <li v-for="variable in template.variables" :key="variable">{{ variable }}</li>
     </ul>
-    <fieldset v-if="template.modifiers.length" :disabled="!!phase">
-      <legend>训练修饰项</legend>
-      <label v-for="option in template.modifiers" :key="option">
-        <input v-model="modifiers" type="checkbox" :value="option" /> {{ modifierLabels[option] }}
-      </label>
-    </fieldset>
+    <p v-if="template.modifiers.length" class="note">训练背景 · {{ template.modifiers.map((option) => modifierLabels[option]).join('、') }}</p>
     <div class="scenario-controls">
       <button class="btn btn-primary" @click="startPreset">开始预置训练</button>
       <button class="btn" :disabled="!!phase || count >= SESSION_LIMIT || storageProblem" @click="generate(false)">请求 AI 剧本</button>
       <button v-if="pending" class="btn" :disabled="!!phase" @click="generate(true)">查询上次生成</button>
       <button class="btn" @click="emit('canonical')">开始 D4 标准训练</button>
     </div>
-    <p class="note" role="status">{{ phase || (storageProblem ? '无法保存本次会话的生成次数。可直接开始预置训练。' : '本页会话生成 ' + count + '/' + SESSION_LIMIT + ' 次 · 上报由模板提供') }}</p>
+    <p class="note" role="status">{{ phase || (storageProblem ? '无法保存本次会话的生成次数。可直接开始预置训练。' : '本页会话生成 ' + count + '/' + SESSION_LIMIT + ' 次 · 可直接使用预置训练') }}</p>
   </section>
 </template>
 
@@ -119,8 +112,6 @@ async function generate(recover: boolean): Promise<void> {
 .scenario-start h2, .scenario-start p, .scenario-start ul { margin: 0; }
 .scenario-start .control { min-height: 44px; min-width: 0; }
 .scenario-start select { flex: 1; min-width: 0; }
-.scenario-start fieldset { margin: 0; padding: 4px 10px; border: 1px solid var(--line); }
-.scenario-start fieldset label { display: inline-flex; align-items: center; min-height: 44px; margin-right: 14px; }
 .scenario-controls { display: flex; gap: 8px; flex-wrap: wrap; }
 .scenario-controls .btn { min-height: 44px; }
 </style>

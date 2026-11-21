@@ -1,0 +1,140 @@
+{
+  "run_id": "6510c384-9ae6-4787-adcf-46cf89916966",
+  "revision": 16,
+  "finished": true,
+  "export_matches_cloud": true,
+  "event_count": 1,
+  "events": [
+    {
+      "seq": 1,
+      "kind": "sort",
+      "payload": {
+        "seq": 1,
+        "t_sim": 300,
+        "ordered_report_ids": [
+          "U4",
+          "U7",
+          "U8"
+        ]
+      }
+    }
+  ],
+  "sort_events": [
+    {
+      "seq": 1,
+      "payload": {
+        "seq": 1,
+        "t_sim": 300,
+        "ordered_report_ids": [
+          "U4",
+          "U7",
+          "U8"
+        ]
+      }
+    }
+  ],
+  "cloud_score": {
+    "total": 15,
+    "discrimination": 0,
+    "response": 0,
+    "coverage": 0,
+    "violation": 100,
+    "sorting": {
+      "actual": [
+        "U4",
+        "U7",
+        "U8"
+      ],
+      "correct": true,
+      "expected": [
+        "U4",
+        "U7",
+        "U8"
+      ]
+    }
+  },
+  "recalculated_score": {
+    "total": 15,
+    "discrimination": 0,
+    "response": 0,
+    "coverage": 0,
+    "violation": 100,
+    "sorting": {
+      "actual": [
+        "U4",
+        "U7",
+        "U8"
+      ],
+      "expected": [
+        "U4",
+        "U7",
+        "U8"
+      ],
+      "correct": true
+    }
+  },
+  "exported_score": {
+    "total": 15,
+    "discrimination": 0,
+    "response": 0,
+    "coverage": 0,
+    "violation": 100,
+    "sorting": {
+      "actual": [
+        "U4",
+        "U7",
+        "U8"
+      ],
+      "expected": [
+        "U4",
+        "U7",
+        "U8"
+      ],
+      "correct": true
+    }
+  },
+  "cloud_matches_recalculation": true,
+  "export_matches_recalculation": true,
+  "report_ids": [
+    "U1",
+    "U2",
+    "U3",
+    "U4",
+    "U5",
+    "U6",
+    "U7",
+    "U8",
+    "U9",
+    "U10"
+  ],
+  "priorities": [
+    4,
+    8,
+    7,
+    1,
+    6,
+    10,
+    2,
+    3,
+    9,
+    5
+  ],
+  "origin": {
+    "calls": 0,
+    "request": {
+      "run_id": "1a6f9075-81fb-478e-874a-d9d75a258558",
+      "modifiers": [
+        "night",
+        "heavy_rain"
+      ],
+      "request_id": "98d12d61-1983-4da1-9f28-94df3be7045b",
+      "template_id": "TPL-NIGHT-DORM-01"
+    },
+    "provider": null,
+    "selection": "preset",
+    "report_source": "preset",
+    "upstream_state": "not_sent",
+    "fallback_reason": null,
+    "shared_retry_used": false
+  }
+}

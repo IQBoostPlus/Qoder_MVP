@@ -9,6 +9,7 @@ import type {
   Verdict,
   VerdictAttempt,
 } from '../contracts';
+import type { RunProgress } from '../run-store/contracts';
 import type { ActionJudge } from '../action-engine';
 import type { RoundData } from '../scenario-generation/contracts';
 import type { FixturePort } from '../fixture-port';
@@ -46,30 +47,35 @@ export function pendingActionText(submission: PendingActionSubmission, tSim: num
 export function useDrillRound(
   fixture: RoundData,
   port: FixturePort,
-  options?: { judgeAction?: ActionJudge },
+  options?: { judgeAction?: ActionJudge; restored?: { progress: RunProgress; events: RunEvent[] }; clockPaused?: boolean },
 ) {
   const rounds = deriveRounds(fixture.scenario);
   const tEnd = fixture.scenario.t_end;
   const speeds = fixture.scenario.playback_speeds;
 
-  const roundIndex = ref(0);
-  const furthestRoundIndex = ref(0);
+  const restored = options?.restored;
+  const roundIndex = ref(restored?.progress.node ?? 0);
+  const furthestRoundIndex = ref(restored?.progress.furthest ?? 0);
   const currentRound = computed<RoundInfo | null>(() => rounds[roundIndex.value] ?? null);
   const currentT = computed(() => currentRound.value?.node.t_sim ?? 0);
   const canPrev = computed(() => roundIndex.value > 0);
   const canNext = computed(() => roundIndex.value < rounds.length - 1);
-  const finished = ref(false);
+  const finished = ref(restored?.progress.finished ?? false);
   const canWrite = computed(() => !finished.value && roundIndex.value === furthestRoundIndex.value);
   const sortOpen = computed(() => canWrite.value && currentRound.value?.kind === 'final');
 
-  const speed = ref(speeds[0] ?? 1);
+  const speed = ref(restored?.progress.speed ?? speeds[0] ?? 1);
   const playing = ref(false);
 
-  const entries = shallowRef<readonly LedgerEntry[]>([]);
-  const nextSeq = ref(1);
-  const deliveredIds = ref<Set<string>>(new Set());
+  const entries = shallowRef<readonly LedgerEntry[]>(restored?.events.map((event) => {
+    if (event.kind === 'action') return { kind: 'action-confirmed', event };
+    if (event.kind === 'sort') return { kind: 'sort', event };
+    return { kind: 'verdict', event };
+  }) ?? []);
+  const nextSeq = ref((restored?.events.at(-1)?.seq ?? 0) + 1);
+  const deliveredIds = ref(new Set(restored ? port.visibleReportsAt(rounds[furthestRoundIndex.value]!.node.t_sim).map(({ id }) => id) : []));
   const lastBatch = ref<UgcReport[]>([]);
-  const realElapsedMs = ref(0);
+  const realElapsedMs = ref(restored?.progress.elapsed_ms ?? 0);
 
   function deliverAt(tSim: number): void {
     const visible = port.visibleReportsAt(tSim);
@@ -132,10 +138,20 @@ export function useDrillRound(
     if (playing.value) startPlayTimer();
   });
 
-  let startMark = performance.now();
-  const realTimer = setInterval(() => {
-    if (!finished.value) realElapsedMs.value = performance.now() - startMark;
-  }, 500);
+  let startMark: number | null = options?.clockPaused || finished.value ? null : performance.now() - realElapsedMs.value;
+  function readClock(): number {
+    return startMark === null ? realElapsedMs.value : Math.round(performance.now() - startMark);
+  }
+  function pauseClock(): void {
+    realElapsedMs.value = readClock();
+    startMark = null;
+    playing.value = false;
+    stopPlayTimer();
+  }
+  function resumeClock(): void {
+    if (startMark === null && !finished.value) startMark = performance.now() - realElapsedMs.value;
+  }
+  const realTimer = setInterval(() => { realElapsedMs.value = readClock(); }, 500);
   if (getCurrentScope()) {
     onScopeDispose(() => {
       stopPlayTimer();
@@ -249,7 +265,7 @@ export function useDrillRound(
     if (!sortOpen.value) return false;
     playing.value = false;
     stopPlayTimer();
-    realElapsedMs.value = performance.now() - startMark;
+    pauseClock();
     finished.value = true;
     return true;
   }
@@ -274,13 +290,13 @@ export function useDrillRound(
     speed.value = speeds[0] ?? 1;
     roundIndex.value = 0;
     furthestRoundIndex.value = 0;
-    startMark = performance.now();
+    startMark = options?.clockPaused ? null : performance.now();
     realElapsedMs.value = 0;
     const first = rounds[0];
     if (first) deliverAt(first.node.t_sim);
   }
 
-  const firstRound = rounds[0];
+  const firstRound = rounds[roundIndex.value];
   if (firstRound) deliverAt(firstRound.node.t_sim);
 
   return {
@@ -303,6 +319,9 @@ export function useDrillRound(
     deliveredReports,
     lastBatch,
     realElapsedMs,
+    readClock,
+    pauseClock,
+    resumeClock,
     currentEvents,
     goToRound,
     goToTime,

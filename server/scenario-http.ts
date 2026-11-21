@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { validateRequest, ValidationError } from '../src/scenario-generation/bundle.ts';
+import { record } from '../src/scenario-generation/bundle.ts';
 import { getTemplate } from '../src/scenario-generation/templates.ts';
 import { GenerationLedger } from './generation-ledger.ts';
 import { createGenerationService } from './generation-service.ts';
@@ -16,10 +17,14 @@ function simulated(mode: string): GenerationProvider {
       requests.set(id, request);
       return id;
     },
-    async send(id) {
+    async send(id, prompt) {
       const request = requests.get(id)!;
       requests.delete(id);
       if (mode === 'unauthorized') throw new ProviderError('unauthorized', true);
+      const payload: unknown = JSON.parse(prompt);
+      if (record(payload) && payload.task === 'd6_reports' && Array.isArray(payload.slots)) {
+        return JSON.stringify(payload.slots.map((slot) => ({ ...slot, text: slot.text[1] })));
+      }
       const template = getTemplate(request.template_id)!;
       const start = Object.keys(template.routes).at(-1)!;
       return JSON.stringify({
@@ -40,7 +45,7 @@ export function createScenarioHttp(environment: NodeJS.ProcessEnv, allowQoder = 
     : permitQoder ? qoderProvider({ token: QODER_ACCESS_TOKEN, agentId: QODER_AGENT_ID, environmentId: QODER_ENVIRONMENT_ID })
       : undefined;
   const ledger = new GenerationLedger(D5_LEDGER_PATH || ':memory:');
-  const service = createGenerationService(ledger, provider, 14_500);
+  const service = createGenerationService(ledger, provider, 14_500, environment.D6_ENABLE_REPORTS === '1');
 
   function json(response: ServerResponse, status: number, value: unknown): void {
     response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });

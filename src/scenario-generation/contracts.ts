@@ -27,7 +27,8 @@ export interface GenerationResult {
   request: GenerationRequest;
   bundle: ScenarioBundle;
   selection: 'preset' | 'generated' | 'fallback';
-  report_source: 'preset';
+  report_source: 'preset' | 'generated' | 'fallback';
+  reports?: { request_id: string; provider: 'qoder' | 'simulated' | null; fallback_reason: FallbackReason | null };
   provider: 'qoder' | 'simulated' | null;
   fallback_reason: FallbackReason | null;
   scenario_source: Scenario['source'];

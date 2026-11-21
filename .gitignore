@@ -7,6 +7,13 @@
 !/cloud-verify/functions/d5-bundle.mjs
 !/cloud-verify/functions/d5-data.mjs
 !/cloud-verify/functions/d5-ledger.mjs
+!/cloud-verify/functions/d5-db-ledger.mjs
+!/cloud-verify/functions/d6-shared.mjs
+!/cloud-verify/functions/index.ts
+!/cloud-verify/functions/routes.mjs
+!/cloud-verify/functions/cloud-agents.mjs
+!/cloud-verify/functions/d2-verify.mjs
+!/cloud-verify/functions/d2-fixture.mjs
 !/cloud-verify/functions/d5-routes.mjs
 !/cloud-verify/functions/d5-service.mjs
 /dist/
