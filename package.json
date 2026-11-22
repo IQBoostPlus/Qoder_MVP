@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Campus emergency desktop drill sandbox — D1 engine contracts and canonical fixture",
+  "description": "Campus emergency desktop drill sandbox — 2.5D map, timed drill rounds, live scoring, run persistence and optional AI scenario/report generation",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit -p tsconfig.app.json && vite build",

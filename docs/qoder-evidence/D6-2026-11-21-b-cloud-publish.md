@@ -84,3 +84,31 @@
 **B 侧后续**：A 合并修复后，B 拉取 → `npm run build:sites:d6`（重 bundle `d6-shared.mjs`）→ 重新发布 B 站 Function → 无需任何手工播种即可云同步；随后 B 补跑 §5 云同步正例（首写 200/读回全等/幂等 200/旧修订 409/错密钥 404）。A 站不受影响。
 
 **期间状态**：B 公网根入口为本机保存版，训练/刷新恢复/导出/独立核验均匿名实测通过；云同步写入待此修复。
+
+## 8. 2026-11-22 修复发布与公网首写活体确认（云同步阻塞关闭）
+
+- A 交付根治 `b251dc2 fix: bootstrap trusted start building before first run sync`：`server/run-repository.ts` 增 `ensureStartBuilding()`，在 ensureTemplate 前按需播种起始楼栋，数据取服务端可信 `campusMap` 且要求 `map_version==='d2-1'` 与冻结快照逐字段全等（伪造→422），23505 竞态回读续跑。B 已快进合入（`origin/main`=`b251dc2`，工作区干净）。`npm run check:d6` 通过，含新用例 `D6 empty Sites mock: first PUT 200 revision 2; building N7 before template and scenario` 与 building bootstrap 系列；A 另以真实 PGlite 复现空库首写 200。
+- **B 重 build**：`npm run build:sites:d6` 产物 `cloud-verify/functions/d6-shared.mjs` SHA-256 `3a9c41c1b8a249092b61ba46e0c78e58412729422ca36b2f43f83dd46727fbfc`（= A 文档记录的目标哈希；A 提交进库的那份为 `7934c491…`，系换行/旧构建污染，二者均含修复，部署以本地重 build 的 `3a9c41c1` 为准）。静态资产哈希与现网一致（前端未变），`b-publish` 布局沿用（D6 根 + `/d5/index.html` 保留）。
+- **重新发布**：action `31e1e3d0-f59a-4b7c-b458-3acc28df4fab`，secretNames 仅 `D6_ENABLE_RUN_SYNC`（生成/测试开关保持关闭，真实模型发送 0 次）；publish operation `01a201ad-0f52-7d26-8c1c-a629732e5a99` succeeded/committed；`get_publish_status` published=true。
+- **公网首写活体确认（匿名 + 同源 Origin/Referer 头，tsx 驱动真实轮次）**：
+  - 首次 PUT `expected_revision=0` → **200 revision 2**（11-21 旧版为 503）；起始楼栋 N7 先于模板/场景入库。
+  - 独立 GET → 200，`stable()` 与导出包全等；甲轮总分 83、21 事件。
+  - 同内容重放 PUT → 200 revision 2（幂等）。
+  - 异内容 + 旧修订 `expected_revision=0` → **409 CONFLICT**。
+  - 合法进行中多步更新（追加事件、furthest/elapsed 递增）`expected_revision=2` → **200 revision 3**，更新后 GET 全等。
+  - 错误 64 位密钥 GET / 无密钥 GET → **404**。
+  - 负例佐证冻结语义：对已结算轮次改 elapsed 的非法更新被 409 拒（assertRunUpdate 冻结保护生效）。
+- 发布后现网复核：根 `/` 200、`/d5/index.html` 200、无密钥 GET 404。
+- 测试轮次（`d96536ae…`、`33c67533…`、`60769639…` 等）为验收写入 B 站库的训练记录，is_training=1；如需清理另行授权。
+- **结论：D6 云同步写入阻塞关闭。** 公网根入口现支持本机保存 + 刷新恢复 + 导出 + 同源云端同步（首写/读回/幂等/冲突/鉴权负例均活体通过）。真实 AI 生成仍按用户决定另行开启（qoder 能力已配，开关未开）。
+
+## 9. 2026-11-22 真实 AI 生成开启与首测诊断（生成回退，待 A 修提供方）
+
+- 用户在站点设置录入 `D5_ENABLE_QODER=1`（`D6_ENABLE_REPORTS` 未设）。因上一发布版 `required_secret_names` 仅含云同步开关，B 重 build（d6-shared `3a9c41c1…`）并以 action `dc38e484-8dcc-43b4-a34b-62e0e7196f51`（secretNames `D6_ENABLE_RUN_SYNC,D5_ENABLE_QODER`）重新发布，publish `01a201b3-7558-7e27-9b9b-b4faff8cf215` committed；Function `required_secret_names` 现含 `D5_ENABLE_QODER`，active。
+- 用户登录态重试 2 次（05:30:04 / 05:30:39），请求均到达服务：`d5_generation_runs` 2 行，`TPL-NIGHT-DORM-01` + modifiers `[night,heavy_rain]`。
+- **两次均回退预置，非 AI 生成**：`d5_generation_results` payload `selection/scenario_source=fallback`、`provider=null`、`fallback_reason=network`、`calls=0`、`upstream_state=not_sent`；`d5_generation_slots` 0 行（未发送）。用户所见「宿舍火情+暴雨内涝」= 预置模板套 heavy_rain 修饰项（模板组装自动加 N8 积水节点），非模型产出。
+- **失败点定位**：Storage 绑定 `d5-generation/<userHash>/resources.json` = `{state:unknown, model:null, agent_id:null, environment_id:null, reason:network}`。即 `ensureResources` 在**首个上游调用 `GET /api/v1/cloud/models`（`api.qoder.com.cn`）就失败**，model 未选出，未建 agent/environment，未发送。
+- PAT 存在（`token()` 通过，否则回退 `not_configured`）；部署版 `d5-service.mjs` ORIGIN=`api.qoder.com.cn` 正确（`server/generation-provider.ts` 的 global 域名仅本地路径）。`api()` 将 401/403 映射为 `unauthorized`，而绑定 reason=`network` ⇒ 失败是 fetch 抛错 / 非 401·403 的 HTTP 错误 / JSON 解析失败，**非鉴权拒绝**。Function output 日志为空，上游精确状态码未记录。
+- **次级发现**：userHash 桶名 = `e3b0c442…b855` = **SHA-256(空串)**，说明网关注入的用户上下文 `user_id` 为空，所有生成请求共用一个空哈希桶。需 A/平台核查公网站登录态身份注入。
+- **设计约束（即便生成成功也如此）**：`generationPrompt` 只让模型输出 `candidate`（起始楼栋/路段/首报·核实·加剧·结束时刻/视角），剧本由**固定模板 + candidate** 组装，上报默认预置。故 AI 生成 = 三套模板 storyline 内的时刻/地点/视角变化，**不是无限新剧本**；heavy_rain 积水节点预置也有。
+- **交接 A**：① 诊断 B 站 `GET /api/v1/cloud/models` 的 network 失败（建议临时记录上游状态码，或核查 B 站 qoder PAT 的 Cloud Agents 权限/区域）；② 核查空 `user_id` 身份注入。B 不代改 A 的提供方逻辑。修复前公网 AI 生成持续回退预置。
