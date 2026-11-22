@@ -7,6 +7,7 @@ import {
 } from './d5-bundle.mjs';
 import { generateReports } from './d6-shared.mjs';
 import { createDatabaseLedger } from './d5-db-ledger.mjs';
+import { createCloudAgentsClient } from './cloud-agents.mjs';
 
 const ORIGIN = 'https://api.qoder.com.cn';
 const INSTANCE = crypto.randomUUID();
@@ -14,15 +15,37 @@ const encoder = new TextEncoder();
 const MODEL_WAIT_MS = 14_500;
 
 export class ProviderError extends Error {
-  constructor(reason, definitive = false) {
+  constructor(reason, definitive = false, detail = {}) {
     super(reason);
     this.reason = reason;
     this.definitive = definitive;
+    this.stage = detail.stage ?? null;
+    this.status = Number.isInteger(detail.status) ? detail.status : null;
+    this.request_id = safeCorrelationId(detail.request_id);
   }
 }
 
+export function safeCorrelationId(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,80}$/.test(value) ? value : null;
+}
+
+function responseDetail(response) {
+  const requestId = safeCorrelationId(response.headers?.get('x-request-id')) ?? safeCorrelationId(response.headers?.get('x-qoder-request-id'));
+  return { http_status: response.status, ...(requestId ? { request_id: requestId } : {}) };
+}
+
+function detailOf(error) {
+  return {
+    reason: error instanceof ProviderError ? error.reason : 'network',
+    ...(error?.stage ? { stage: error.stage } : {}),
+    ...(Number.isInteger(error?.status) ? { http_status: error.status } : {}),
+    ...(typeof error?.request_id === 'string' ? { request_id: error.request_id } : {}),
+  };
+}
+
 function token() {
-  const value = typeof Deno !== 'undefined' ? Deno.env.get('QODER_PAT') : undefined;
+  let value;
+  try { value = globalThis.Deno?.env.get('QODER_PAT'); } catch { throw new ProviderError('not_configured', true); }
   if (typeof value !== 'string' || !value.trim() || /[\r\n]/.test(value)) throw new ProviderError('not_configured', true);
   return value;
 }
@@ -40,34 +63,40 @@ export async function redactId(id) {
   return typeof id === 'string' ? { prefix: id.slice(0, 16), fingerprint: await digest(id) } : null;
 }
 
-async function api(path, { method = 'GET', body, signal, idempotencyKey } = {}) {
+async function api(path, { method = 'GET', body, signal, idempotencyKey, onResponse } = {}) {
   if (!/^\/api\/v1\/cloud\/(agents|environments|sessions|models)(\/[A-Za-z0-9_-]+)*(\?[A-Za-z0-9_%=&.-]*)?$/.test(path)) {
-    throw new ProviderError('network', true);
+    throw new ProviderError('network', true, { stage: 'validation' });
   }
-  if (idempotencyKey !== undefined && !/^[A-Za-z0-9._:-]{1,200}$/.test(idempotencyKey)) throw new ProviderError('network', true);
+  if (idempotencyKey !== undefined && !/^[A-Za-z0-9._:-]{1,200}$/.test(idempotencyKey)) {
+    throw new ProviderError('network', true, { stage: 'validation' });
+  }
+  const bearer = token();
   let response;
   try {
     response = await fetch(ORIGIN + path, {
       method, signal, redirect: 'error',
       headers: {
-        Authorization: 'Bearer ' + token(), Accept: 'application/json',
+        Authorization: 'Bearer ' + bearer, Accept: 'application/json',
         ...(body ? { 'Content-Type': 'application/json' } : {}),
         ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch (error) {
-    throw new ProviderError(signal?.aborted ? 'timeout' : 'network', false);
+    throw new ProviderError(signal?.aborted ? 'timeout' : 'network', false, { stage: 'transport' });
   }
+  const detail = responseDetail(response);
+  onResponse?.(detail);
   if (!response.ok) {
     void response.body?.cancel().catch(() => {});
     throw new ProviderError(response.status === 401 || response.status === 403 ? 'unauthorized' : 'network',
-      response.status >= 400 && response.status < 500 && response.status !== 408);
+      response.status >= 400 && response.status < 500 && response.status !== 408,
+      { stage: 'http', status: response.status, request_id: detail.request_id });
   }
   try {
     return await response.json();
   } catch {
-    throw new ProviderError('network', false);
+    throw new ProviderError('network', false, { stage: 'parse', status: response.status, request_id: detail.request_id });
   }
 }
 
@@ -109,70 +138,298 @@ function pickModel(models) {
 // existing Session evidence or the Storage ledger layout.
 const BINDING_REVISION = 2;
 
-export async function ensureResources(storage, userHash) {
-  const path = `d5-generation/${userHash}/resources.json`;
-  const read = async () => {
-    try { return JSON.parse(await (await storage.download(path)).text()); } catch { return null; }
-  };
-  const write = async (value) => {
-    await storage.upload(path, encoder.encode(JSON.stringify(value)), { contentType: 'application/json; charset=utf-8', upsert: true });
-  };
-  let binding = await read();
-  if (binding?.state === 'ready' && binding.revision === BINDING_REVISION) return binding;
-  if (binding?.state === 'unknown') throw new ProviderError('network', false);
-  if (binding?.state === 'creating' && !binding.agent_id) throw new ProviderError('network', false);
-  if (binding?.state === 'creating' && binding.agent_id && !binding.environment_id) {
-    const environment = await api('/api/v1/cloud/environments', { method: 'POST', body: { name: 'D5 scenario environment', config: { type: 'cloud' } } });
-    if (typeof environment?.id !== 'string' || !/^env_[A-Za-z0-9_-]+$/.test(environment.id)) throw new ProviderError('network');
-    binding = { ...binding, state: 'ready', revision: BINDING_REVISION, environment_id: environment.id };
-    await write(binding);
-    return binding;
-  }
-  if (binding && binding.state !== 'ready') throw new ProviderError('network', false);
+const BINDING_PATH = (userHash) => `d5-generation/${userHash}/resources.json`;
 
-  const claim = {
-    state: 'creating', revision: BINDING_REVISION, created_at: new Date().toISOString(),
-    model: null, agent_id: null, agent_version: null, environment_id: binding?.environment_id ?? null,
-    replaced: binding ? { agent_id: binding.agent_id, model: binding.model } : null,
-  };
-  if (binding) {
-    await write(claim);
-  } else {
-    try {
-      await storage.upload(path, encoder.encode(JSON.stringify(claim)), { contentType: 'application/json; charset=utf-8', upsert: false });
-    } catch {
-      const existing = await read();
-      if (existing?.state === 'ready' && existing.revision === BINDING_REVISION) return existing;
-      throw new ProviderError('network', false);
-    }
-  }
+function storageNotFound(error) {
+  const code = String(error?.code ?? '').toLowerCase();
+  const message = String(error?.message ?? '').toLowerCase();
+  const status = error?.status ?? error?.statusCode;
+  if (status != null) return Number(status) === 404;
+  return code.includes('not_found') || code.includes('notfound')
+    || message.includes('not found') || message.includes('not_found');
+}
+
+async function readBindingResult(storage, path) {
   try {
-    const models = await api('/api/v1/cloud/models');
-    const model = pickModel(models);
-    if (!model) throw new ProviderError('network', true);
-    const agent = await api('/api/v1/cloud/agents', {
-      method: 'POST', idempotencyKey: `d5-agent-${userHash.slice(0, 16)}-r${BINDING_REVISION}`,
-      body: {
-        name: 'D5 scenario generator', model,
-        system: '你是校园应急桌面推演的剧本事实选择器。只输出一个符合给定 JSON Schema 的对象，不要代码块、解释或工具调用。',
+    const object = await storage.download(path);
+    if (!object) return { ok: true, value: null };
+    const value = JSON.parse(await object.text());
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false, value: null };
+    return { ok: true, value };
+  } catch (error) {
+    return storageNotFound(error) ? { ok: true, value: null } : { ok: false, value: null, error };
+  }
+}
+
+function storageFailure(stage, error) {
+  return new ProviderError('storage', false, {
+    stage, status: error?.status ?? error?.statusCode, request_id: error?.request_id ?? error?.requestId,
+  });
+}
+
+async function readBinding(storage, path) {
+  const result = await readBindingResult(storage, path);
+  if (!result.ok) throw storageFailure('binding_read', result.error);
+  return result.value;
+}
+
+function diagnosticSteps(steps) {
+  if (!steps || typeof steps !== 'object') return null;
+  const safe = {};
+  for (const name of ['binding_read', 'binding_write', 'models', 'agent', 'environment']) {
+    const step = steps[name];
+    if (!step || typeof step !== 'object') continue;
+    const fields = {};
+    for (const key of ['status', 'at', 'state', 'selected', 'reason', 'stage', 'outcome', 'request_id']) {
+      const value = safeCorrelationId(step[key]);
+      if (value) fields[key] = value;
+    }
+    for (const key of ['http_status', 'attempt', 'count', 'version', 'revision']) {
+      if (Number.isSafeInteger(step[key])) fields[key] = step[key];
+    }
+    safe[name] = fields;
+  }
+  return safe;
+}
+
+function describeBinding(binding) {
+  if (!binding) return { readable: true, exists: false };
+  return {
+    readable: true,
+    exists: true,
+    state: binding.state ?? null,
+    revision: binding.revision ?? null,
+    model: binding.model ?? null,
+    reason: binding.reason ?? null,
+    http_status: binding.http_status ?? null,
+    request_id: safeCorrelationId(binding.request_id),
+    failed_step: binding.failed_step ?? null,
+    has_agent: Boolean(binding.agent_id),
+    has_environment: Boolean(binding.environment_id),
+    attempts: binding.attempts ?? null,
+    created_at: binding.created_at ?? null,
+    recovered_at: binding.recovered_at ?? null,
+    steps: diagnosticSteps(binding.steps),
+  };
+}
+
+export async function bindingStatus(storage, userHash) {
+  const result = await readBindingResult(storage, BINDING_PATH(userHash));
+  if (!result.ok) return { readable: false, exists: null };
+  return describeBinding(result.value);
+}
+
+export function bindingFailure(error) {
+  const failedStep = error?.failed_step ?? error?.stage ?? 'binding';
+  const detail = detailOf(error);
+  return { ...detail, failed_step: failedStep,
+    steps: diagnosticSteps(error?.steps) ?? { [failedStep]: { status: 'error', ...detail } } };
+}
+
+async function prepareEnvironment(storage, userHash, previous, signal, mark) {
+  const prior = previous?.steps?.environment;
+  if (previous && !prior?.attempt && prior?.outcome !== 'rejected' &&
+    (previous.failed_step === 'environment' || (previous.state !== 'ready' && !previous.steps))) {
+    mark('environment', 'error', { stage: 'reconciliation_required', outcome: 'unknown' });
+    throw new ProviderError('network', false, { stage: 'reconciliation_required' });
+  }
+  const attempt = (prior?.attempt ?? 1) + (prior?.outcome === 'rejected' ? 1 : 0);
+  const marker = `d5-generation/${userHash}/environment-r${BINDING_REVISION}-${attempt}.json`;
+  const metadata = { d5_binding: await digest(marker) };
+  token();
+  signal.throwIfAborted();
+  const claim = crypto.randomUUID();
+  let existing;
+  try {
+    await storage.upload(marker, encoder.encode(JSON.stringify({ claim })), { contentType: 'application/json', upsert: false });
+  } catch (error) {
+    existing = await readBinding(storage, marker);
+    if (!existing) throw storageFailure('binding_write', error);
+  }
+  if (existing && existing.claim !== claim) {
+    // Managed Environment creation does not document idempotent replay. A durable intent
+    // makes later calls look for the original object instead of issuing another POST.
+    let lookupReceipt;
+    const cloud = createCloudAgentsClient({ origin: ORIGIN, diagnostics: () => {},
+      fetchImpl: async (url, options) => {
+        const response = await fetch(url, { ...options, signal: AbortSignal.any([signal, options.signal]) });
+        lookupReceipt = responseDetail(response);
+        return response;
       },
     });
-    if (typeof agent?.id !== 'string' || !/^agent_[A-Za-z0-9_-]+$/.test(agent.id) || !Number.isInteger(agent.version)) {
-      throw new ProviderError('network');
+    try {
+      const found = await cloud.findResources('environments', metadata);
+      if (found.length === 1 && /^env_[A-Za-z0-9_-]+$/.test(found[0].id)) {
+        mark('environment', 'recovered', { ...lookupReceipt, attempt });
+        return found[0].id;
+      }
+    } catch {
+      const failure = new ProviderError('network', false, { stage: 'reconciliation',
+        status: lookupReceipt?.http_status, request_id: lookupReceipt?.request_id });
+      mark('environment', 'error', { ...detailOf(failure), attempt, outcome: 'unknown' });
+      throw failure;
     }
-    binding = { ...claim, model, agent_id: agent.id, agent_version: agent.version };
-    await write(binding);
-    let environmentId = claim.environment_id;
-    if (!environmentId) {
-      const environment = await api('/api/v1/cloud/environments', { method: 'POST', body: { name: 'D5 scenario environment', config: { type: 'cloud' } } });
-      if (typeof environment?.id !== 'string' || !/^env_[A-Za-z0-9_-]+$/.test(environment.id)) throw new ProviderError('network');
-      environmentId = environment.id;
+    const failure = new ProviderError('network', false, { stage: 'reconciliation_required',
+      status: lookupReceipt?.http_status, request_id: lookupReceipt?.request_id });
+    mark('environment', 'error', { ...detailOf(failure), attempt, outcome: 'unknown' });
+    throw failure;
+  }
+
+  let detail;
+  try {
+    const environment = await api('/api/v1/cloud/environments', {
+      method: 'POST', signal, onResponse: (result) => { detail = result; },
+      body: { name: 'D5 scenario environment', config: { type: 'cloud' }, metadata },
+    });
+    if (typeof environment?.id !== 'string' || !/^env_[A-Za-z0-9_-]+$/.test(environment.id)) {
+      throw new ProviderError('network', false, { stage: 'shape', status: detail?.http_status, request_id: detail?.request_id });
     }
-    binding = { ...binding, state: 'ready', environment_id: environmentId };
-    await write(binding);
+    mark('environment', 'ok', { ...detail, attempt });
+    return environment.id;
+  } catch (error) {
+    const rejected = error.definitive && error.status !== 409;
+    mark('environment', 'error', { ...detailOf(error), attempt, outcome: rejected ? 'rejected' : 'unknown' });
+    throw error;
+  }
+}
+
+export async function ensureResources(storage, userHash, signal = AbortSignal.timeout(MODEL_WAIT_MS)) {
+  const path = BINDING_PATH(userHash);
+  const write = async (value) => {
+    try {
+      await storage.upload(path, encoder.encode(JSON.stringify(value)), { contentType: 'application/json; charset=utf-8', upsert: true });
+    } catch (error) {
+      throw storageFailure('binding_write', error);
+    }
+  };
+  let binding = await readBinding(storage, path);
+  const steps = { ...(binding?.steps ?? {}) };
+  let failedStep = 'unknown';
+  const mark = (name, status, detail = {}) => {
+    steps[name] = { status, at: new Date().toISOString(), ...detail };
+    if (status === 'error') failedStep = name;
+  };
+  const save = async (next) => {
+    if (next.state === 'ready') mark('binding_write', 'ok');
+    const value = { ...next, updated_at: new Date().toISOString(), steps: { ...steps } };
+    if (value.state === 'ready') {
+      for (const key of ['reason', 'stage', 'failed_step', 'http_status', 'request_id']) delete value[key];
+    }
+    await write(value);
+    return value;
+  };
+
+  mark('binding_read', 'ok', { state: binding?.state ?? null, revision: binding?.revision ?? null });
+  if (binding?.state === 'ready' && binding.revision === BINDING_REVISION) {
+    if (binding.model && binding.agent_id && Number.isInteger(binding.agent_version) && binding.environment_id) return binding;
+    throw storageFailure('binding_read');
+  }
+  if (binding?.state === 'creating' && Date.now() - Date.parse(binding.updated_at ?? binding.created_at) < MODEL_WAIT_MS) {
+    throw new ProviderError('network', false, { stage: 'binding_claim' });
+  }
+
+  const previous = binding;
+  const resumable = previous?.state === 'unknown' || (previous?.state === 'creating' && (previous.steps || previous.agent_id));
+  if (previous && !resumable && previous.state !== 'ready') throw new ProviderError('network', false);
+
+  let model = resumable ? previous.model ?? null : null;
+  let agentId = null;
+  let agentVersion = null;
+  if (resumable && typeof previous.agent_id === 'string' && previous.model && Number.isInteger(previous.agent_version)) {
+    model = previous.model;
+    agentId = previous.agent_id;
+    agentVersion = previous.agent_version;
+    mark('agent', 'reused');
+  }
+
+  binding = {
+    ...(resumable ? previous : {}),
+    state: 'creating',
+    revision: BINDING_REVISION,
+    created_at: previous?.created_at ?? new Date().toISOString(),
+    model,
+    agent_id: agentId,
+    agent_version: agentVersion,
+    environment_id: previous?.environment_id ?? null,
+    replaced: resumable ? previous.replaced ?? null : previous ? { agent_id: previous.agent_id, model: previous.model } : null,
+    attempts: (previous?.attempts ?? 0) + 1,
+    ...(resumable ? { recovered_at: new Date().toISOString() } : {}),
+  };
+  if (previous) {
+    binding = await save(binding);
+  } else {
+    try {
+      await storage.upload(path, encoder.encode(JSON.stringify({ ...binding, steps })), { contentType: 'application/json; charset=utf-8', upsert: false });
+    } catch (error) {
+      const existing = await readBinding(storage, path);
+      if (existing?.state === 'ready' && existing.revision === BINDING_REVISION) return existing;
+      if (!existing) throw storageFailure('binding_write', error);
+      throw new ProviderError('network', false, { stage: 'binding_claim' });
+    }
+  }
+
+  try {
+    if (!agentId) {
+      if (!model) {
+        let detail;
+        try {
+          const models = await api('/api/v1/cloud/models', { signal, onResponse: (result) => { detail = result; } });
+          model = pickModel(models);
+          if (!model) throw new ProviderError('network', true,
+            { stage: 'shape', status: detail?.http_status, request_id: detail?.request_id });
+          mark('models', 'ok', { ...detail, count: models.data.length, selected: model });
+        } catch (error) {
+          mark('models', 'error', detailOf(error));
+          throw error;
+        }
+      }
+      // The Agent API supports idempotent replay of the same request. Persist its model first.
+      binding = { ...binding, model };
+      binding = await save(binding);
+      let agent;
+      let detail;
+      try {
+        agent = await api('/api/v1/cloud/agents', {
+          method: 'POST', signal, onResponse: (result) => { detail = result; },
+          idempotencyKey: `d5-agent-${userHash.slice(0, 16)}-r${BINDING_REVISION}`,
+          body: {
+            name: 'D5 scenario generator', model,
+            system: '你是校园应急桌面推演的剧本事实选择器。只输出一个符合给定 JSON Schema 的对象，不要代码块、解释或工具调用。',
+          },
+        });
+      } catch (error) {
+        mark('agent', 'error', detailOf(error));
+        throw error;
+      }
+      if (typeof agent?.id !== 'string' || !/^agent_[A-Za-z0-9_-]+$/.test(agent.id) || !Number.isInteger(agent.version)) {
+        mark('agent', 'error', { ...detail, reason: 'invalid_response', stage: 'shape' });
+        throw new ProviderError('network', false, { stage: 'shape', status: detail?.http_status, request_id: detail?.request_id });
+      }
+      mark('agent', 'ok', { ...detail, version: agent.version });
+      agentId = agent.id;
+      agentVersion = agent.version;
+      binding = { ...binding, model, agent_id: agentId, agent_version: agentVersion };
+      binding = await save(binding);
+    }
+    let environmentId = binding.environment_id;
+    if (environmentId) {
+      mark('environment', 'reused');
+    } else {
+      environmentId = await prepareEnvironment(storage, userHash, previous, signal, mark);
+    }
+    binding = { ...binding, environment_id: environmentId };
+    binding = await save({ ...binding, state: 'ready' });
     return binding;
   } catch (error) {
-    await write({ ...claim, state: 'unknown', reason: error instanceof ProviderError ? error.reason : 'network' });
+    if (error?.reason === 'storage') mark('binding_write', 'error', detailOf(error));
+    if (failedStep === 'unknown') mark('environment', 'error', detailOf(error));
+    error.failed_step = failedStep;
+    error.steps = { ...steps };
+    try {
+      binding = await save({ ...binding, state: 'unknown', ...detailOf(error), failed_step: failedStep });
+    } catch {
+      // Keep the original upstream error; the binding write failure is secondary.
+    }
     throw error;
   }
 }
@@ -266,11 +523,12 @@ export function createD5Service({ db, storage }) {
 
     let binding;
     try {
-      binding = await ensureResources(storage, userHash);
+      binding = await ensureResources(storage, userHash, deadline.signal);
       trace.model = binding.model;
       trace.agent = await redactId(binding.agent_id);
       trace.environment = await redactId(binding.environment_id);
     } catch (error) {
+      trace.binding_error = bindingFailure(error);
       return fallback(error?.reason === 'not_configured' ? 'not_configured' : 'network');
     }
 
@@ -284,13 +542,16 @@ export function createD5Service({ db, storage }) {
         session = await prepareSession(binding, request, deadline.signal);
         trace.phases[slot].session = await redactId(session);
       } catch (error) {
+        trace.phases[slot].failure = { step: 'session_create', ...detailOf(error) };
         return fallback(error?.reason ?? 'network');
       }
       if (!(await ledger.markSent(slot, session, { instance: INSTANCE, model: binding.model }))) return followStoredRequest();
       trace.phases[slot].sent_at = new Date().toISOString();
+      let phase = 'send';
       try {
         const prompt = generationPrompt(request, issues.at(-1));
         await sendPrompt(session, prompt, deadline.signal);
+        phase = 'reply';
         const text = await waitReply(session, deadline.signal);
         trace.phases[slot].reply_at = new Date().toISOString();
         await ledger.markComplete(slot);
@@ -315,6 +576,7 @@ export function createD5Service({ db, storage }) {
           usage: () => ledger.usage(),
         }, deadline.signal));
       } catch (error) {
+        if (!(error instanceof ValidationError)) trace.phases[slot].failure = { step: phase, ...detailOf(error) };
         if (deadline.signal.aborted) return fallback('timeout', 'qoder');
         if (error instanceof ValidationError) {
           issues.push(error.issue);
@@ -472,13 +734,14 @@ export function createD5Service({ db, storage }) {
     const result = { configured: qoderConfigured(), ledger: 'database', instance: INSTANCE };
     if (!result.configured) return result;
     try {
-      const models = await api('/api/v1/cloud/models');
+      const models = await api('/api/v1/cloud/models', { signal: AbortSignal.timeout(3500) });
       const list = Array.isArray(models?.data) ? models.data : [];
       result.model_count = list.length;
       result.selected_model = pickModel(models);
       result.models = list.slice(0, 40).map((model) => ({ id: model?.id ?? null, enabled: model?.enabled !== false, name: model?.name ?? null }));
     } catch (error) {
       result.models_error = error?.reason ?? 'network';
+      result.models_error_detail = detailOf(error);
     }
     return result;
   }
@@ -511,8 +774,9 @@ export function createD5Service({ db, storage }) {
     const binding = await ensureResources(storage, userHash);
     return {
       model: binding.model,
-      agent: await redactId(binding.agent_id),
-      environment: await redactId(binding.environment_id),
+      agent: { fingerprint: await digest(binding.agent_id) },
+      environment: { fingerprint: await digest(binding.environment_id) },
+      binding: describeBinding(binding),
       instance: INSTANCE,
     };
   }
@@ -535,7 +799,7 @@ export function createD5Service({ db, storage }) {
     return { usage: await ledger.usage(), result: await ledger.readResult(), instance: INSTANCE };
   }
 
-  return { generate, recover, disabled, claimLastSlot, interrupt, diag, warm, seed, stats, upstream, instance: INSTANCE };
+  return { generate, recover, disabled, claimLastSlot, interrupt, diag, warm, seed, stats, upstream, bindingStatus, instance: INSTANCE };
 }
 
 export { MODEL_WAIT_MS, GENERATION_WAIT_MS };

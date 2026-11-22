@@ -16,7 +16,7 @@
     "check:d2": "npm run check:d1-v2 && tsx scripts/validate-d2.ts",
     "check:d3": "npm run check:d2 && tsx scripts/validate-d3.ts && tsx scripts/validate-canonical.ts --rejudge-actions",
     "check:d4": "npm run check:d3 && tsx scripts/validate-d4.ts",
-    "check:d5": "npm run check:d4 && tsx scripts/validate-d5.ts && tsx scripts/verify-d5-cloud-port.mjs && node scripts/verify-d5-cloud-ledger.mjs",
+    "check:d5": "npm run check:d4 && tsx scripts/validate-d5.ts && tsx scripts/verify-d5-cloud-port.mjs && node scripts/verify-d5-cloud-ledger.mjs && node scripts/verify-d5-identity.mjs",
     "build:sites:d6": "node scripts/build-d6-sites.mjs",
     "check:d6": "npm run check:d5 && tsx scripts/validate-d6.ts",
     "scenario:server": "tsx server/index.ts"

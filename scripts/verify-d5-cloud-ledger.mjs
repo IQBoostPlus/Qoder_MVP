@@ -7,7 +7,7 @@ import { application } from '../cloud-verify/functions/routes.mjs';
 const objects = new Map();
 const storage = {
   async download(path) {
-    if (!objects.has(path)) throw new Error('missing');
+    if (!objects.has(path)) throw Object.assign(new Error('missing'), { status: 404 });
     const text = objects.get(path);
     return { text: async () => text };
   },
@@ -291,6 +291,51 @@ for (const path of legacyAgentPaths) {
   await assert.rejects(postLegacyAgent(path), { message: 'agent_test_routes_disabled', status: 404 });
 }
 assert.equal((await (await invoke('/api/d5/diag')).json()).real_generation_enabled, true);
+
+let activeIdentity = 'local-owner-a';
+const publicApp = application({ db, storage, BackendError, requireUser: async () => ({ user: { userId: activeIdentity } }) });
+const appRequest = { ...request, run_id: 'application-owned-run', request_id: 'application-owned-request' };
+const scenarioRoute = 'https://test.invalid/functions/v1/app/api/d5/scenario';
+const publicSend = await publicApp({ request: new Request(scenarioRoute, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(appRequest),
+}) });
+assert.equal(publicSend.status, 200);
+const generated = (await publicSend.json()).result;
+assert.equal(generated.selection, 'generated');
+assert.equal(generated.provider, 'qoder');
+assert.equal(generated.calls, 1);
+assert.equal(generated.upstream_state, 'complete');
+const publicRead = () => publicApp({ request: new Request(scenarioRoute + queryFor(appRequest)) });
+const sendsBeforeRead = modelSends;
+activeIdentity = 'local-owner-b';
+assert.equal((await publicRead()).status, 404);
+activeIdentity = 'local-owner-a';
+assert.deepEqual((await (await publicRead()).json()).result, generated);
+assert.equal(modelSends, sendsBeforeRead);
+console.log('Sites application mock: asynchronous owner generates once, another owner gets 404 and the original owner reads back the same result.');
+
+const normalFetch = globalThis.fetch;
+globalThis.fetch = async (url) => {
+  assert.equal(new URL(url).pathname, '/api/v1/cloud/models');
+  return Response.json({}, { status: 502, headers: { 'x-request-id': 'local-models-error' } });
+};
+try {
+  activeIdentity = 'local-owner-resource-failure';
+  const request = { ...appRequest, run_id: 'binding-failure-run' };
+  const reply = await publicApp({ request: new Request(scenarioRoute, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request),
+  }) });
+  assert.equal(reply.status, 200);
+  const { result, trace } = await reply.json();
+  assert.equal(result.selection, 'fallback');
+  assert.equal(result.fallback_reason, 'network');
+  assert.equal(result.calls, 0);
+  assert.equal(result.upstream_state, 'not_sent');
+  assert.equal(trace.binding_error.failed_step, 'models');
+  assert.equal(trace.binding_error.http_status, 502);
+  assert.equal(db.tableRows('d5_generation_slots').filter((row) => row.run_id === request.run_id).length, 0);
+} finally { globalThis.fetch = normalFetch; }
+
 console.log('Sites route mock: off flags, zero outbound fetches and zero ledger writes with credentials present; cached reads and D1/D2/D5 test gates verified');
 console.log('D5 service mock: database claim, dedup, conflict, last-slot race, interrupt and recovery passed');
 console.log(JSON.stringify({ sessions, interrupted: interrupted.interrupted, recovered_state: recovered.result.upstream_state }));
