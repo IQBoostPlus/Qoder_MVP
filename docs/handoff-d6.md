@@ -1,10 +1,10 @@
 # D6 整批上报与轮次恢复交接
 
-2026-11-21 本机保存版已可交付；A 私有站的 D6 纯 DDL、两轮预置读写、排序、访问拒绝、冲突和断网恢复均有历史实测。真实上报验收部分完成。最近一次获授权的实际域名诊断为 `false`，本次关闭版发布复验仍待完成。B 公开体验站继续使用 D5。详见 [D6 收尾记录](qoder-evidence/D6-2026-11-21-closeout.md)。
+2026-11-22。B 公开站根入口已发布 D6，旧 D5 保留在 `/d5/index.html`。B 的首次云同步 `503` 已在空库复现并修复，本地同源 Function 的首次 PUT、独立 GET 和导出复算均通过，B 公网待发布复验。A 私有站的历史云端读写与 Stage 3 部分验收另见 [D6 收尾记录](qoder-evidence/D6-2026-11-21-closeout.md)。
 
 ## B 立即联调 · 本机保存版
 
-交付基于 `40c147b` 工作区源码快照，D6 仍未提交或推送。B 收到 `D6-B-handoff-2026-11-21.zip` 后，解压到独立目录，使用 Node 24 验证。ZIP 内的 `MANIFEST.sha256` 列出归档源文件校验和。
+原 D6 源码已进入 `e504106`，B 的界面集成与部署记录已进入 `b7ab61d`。本次首次同步修复基于 `b7ab61d`，可用独立补丁合入。使用 Node 24 验证。
 
 ```powershell
 npm ci
@@ -21,6 +21,8 @@ npm run preview
 可选模拟联调使用单独终端。PowerShell 设置 `$env:D5_SIMULATE='valid'; $env:D6_ENABLE_REPORTS='1'` 后运行 `npm run dev`。点击「请求 AI 剧本」，徽标显示「模拟生成剧本 · 模拟生成上报」，推进到首报检查实际候选文案。
 
 ## B 可选联调 · 同源云端保存版
+
+已发布的 B 站应先按 [首次云同步修复与公网复验单](qoder-evidence/D6-2026-11-22-b-first-sync-fix.md) 更新 Function。已有迁移和静态入口直接沿用。下面是新建联调站的配置步骤。
 
 1. 在 B 自己的站申请数据库与 Function，核对已有表。按 [D2 → D5 → D6 Sites 迁移顺序](../db/README.md#d5-与-d6-增量) 补缺。使用完整 A/B 通用 Function 时同时绑定 Storage，供历史兼容路径使用。D6 保存走 B 站自己的数据库。
 2. 运行 `npm run build:sites:d6`。D6 页面在 `cloud-verify/dist/d6`，Function 源码在 `cloud-verify/functions`。现有站全量发布时先核对原入口保留情况。专用于 D6 的新站可以把 D6 子目录作为该新站的静态根，因为所有页面资产是相对路径。平台准备 Function 时生成 `_qoder/backend.mjs` 和 `_qoder/storage.mjs`，对应数据库与 Storage 绑定，客户端不携带服务端凭证。
@@ -71,7 +73,7 @@ Sites 与 Node 使用同一共享阶段和候选校验。更新 A 站时选择 `
 Sites 迁移不接受自定义事务函数、RPC 或 `GRANT`，因此这不是多表物理事务。提交标记以上的事件行不会进入业务读取，但不会自动物理回滚；读取只采用已提交序号以内的事件。跨实例同时写入未在 D6 单独构造双实例复验。经批准后已应用纯 DDL，只配置 `D6_ENABLE_RUN_SYNC=1` 与同源 `VITE_D6_RUN_PATH=/functions/v1/app/api/d6/runs`；`D5_ENABLE_QODER` 与 `D6_ENABLE_REPORTS` 保持关闭。关闭真实生成与关闭保存仍可独立配置。
 
 - A 私有验证站为 D1 connectivity check，Site `01a1e975-1db9-72f3-8c5f-e01f8f858c83`。D5 台账及 Agent 归 A。零模型阶段 action `22f83653-16af-4e9d-96a4-c8de1b1b96b5` 有部署与探针回执；Stage 3 随后另有发布尝试，最后一次已登录 `diag=false` 见 [收尾记录](qoder-evidence/D6-2026-11-21-closeout.md)。本次源码修复尚未发布。
-- B 公开体验站 Site `01a1f8cc-becd-768a-8512-beef169dcc46`。D5 最终发布 action `8b274b70-b732-4088-9b72-dd38499ee626`，匿名访问的预置版，`databaseAccess=none`。D6 公开版由 B 同源发布或继续本机保存，不调用 A 私有站。本轮未改动 B 的访问策略或部署。[B 公开版记录](qoder-evidence/D5-2026-11-20-review-deploy-trial.md#11-任务-c-首次公网部署2026-11-20-实测)
+- B 公开体验站 Site `01a1f8cc-becd-768a-8512-beef169dcc46`。D6 根入口和同源 Function `app` 已发布，12 张表已配置，Function 为 `read_write`，`D6_ENABLE_RUN_SYNC=1`。首写旧版 `503` 待 B 合入本次修复后复验。A 未修改该站部署、权限或数据。[B 发布记录](qoder-evidence/D6-2026-11-21-b-cloud-publish.md) · [首写修复](qoder-evidence/D6-2026-11-22-b-first-sync-fix.md)
 
 ## 云端验收结果（2026-11-21）
 

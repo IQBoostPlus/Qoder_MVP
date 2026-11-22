@@ -7,7 +7,7 @@ import { useDrillRound } from '../src/composables/useDrillRound';
 import { createLocalRunStore, exportRun, importRun, newRun, updateRun } from '../src/run-store/local';
 import { stable } from '../src/run-store/validation';
 import { RunStoreError, type StoredRun } from '../src/run-store/contracts';
-import { fallbackResult, ValidationError } from '../src/scenario-generation/bundle';
+import { assembleBundle, fallbackResult, ValidationError } from '../src/scenario-generation/bundle';
 import type { GenerationRequest } from '../src/scenario-generation/contracts';
 import { campusMap, templates } from '../src/scenario-generation/templates';
 import { reportCandidates, validateReportBatch } from '../src/scenario-generation/reports';
@@ -185,11 +185,18 @@ for (const failAt of ['scenario', 'reports'] as const) {
 }
 console.log('D6 shared-retry competition, reserved review slot, four-call cap and original-deadline report fallback verified.');
 
-function memoryDb() {
+function memoryDb(overlapFirstBuildingReads = false) {
   type Row = Record<string, unknown>;
   const tables: Record<string, Map<string, Row>> = {
     runs: new Map(), scenarios: new Map(), ugc_reports: new Map(), run_events: new Map(), disaster_templates: new Map(),
+    campus_buildings: new Map(),
   };
+  const insertedTables: string[] = [];
+  const buildingCollisions: string[] = [];
+  let buildingReads = 0;
+  let releaseBuildingReads: (() => void) | undefined;
+  const buildingReadGate = new Promise<void>((resolve) => { releaseBuildingReads = resolve; });
+  let buildingInsertError: string | null = null;
   let failUpdate = false;
   let eventsBeforeFailure: number | null = null;
   const primary = (table: string, row: Row) => table === 'run_events' ? `${row.run_id}:${row.seq}` : String(row.id);
@@ -207,20 +214,35 @@ function memoryDb() {
         then(resolve, reject) {
           const data = [...tables[name]!.values()].filter((row) => filters.every(([column, value]) => row[column] === value))
             .slice(0, limit).map((row) => project(row, columns));
+          if (overlapFirstBuildingReads && name === 'campus_buildings' && ++buildingReads <= 2) {
+            // Both requests must observe the empty table before either attempts its insert.
+            if (buildingReads === 2) releaseBuildingReads!();
+            return buildingReadGate.then(() => ({ data, error: null })).then(resolve, reject);
+          }
           return Promise.resolve({ data, error: null }).then(resolve, reject);
         },
       });
       return build();
     },
     insert(rows: Row | Row[]) {
+      if (name === 'campus_buildings' && buildingInsertError) {
+        return Promise.resolve({ data: null, error: { code: buildingInsertError } });
+      }
       const failureBoundary = name === 'run_events' ? eventsBeforeFailure : null;
       if (name === 'run_events') eventsBeforeFailure = null;
       let inserted = 0;
       for (const row of Array.isArray(rows) ? rows : [rows]) {
         if (inserted === failureBoundary) return Promise.resolve({ data: null, error: { code: 'XX000' } });
         const key = primary(name, row);
-        if (tables[name]!.has(key)) return Promise.resolve({ data: null, error: { code: '23505' } });
+        if (tables[name]!.has(key)) {
+          if (name === 'campus_buildings') buildingCollisions.push(key);
+          return Promise.resolve({ data: null, error: { code: '23505' } });
+        }
+        if ((name === 'disaster_templates' || name === 'scenarios') && !tables.campus_buildings!.has(String(row.start_building_id))) {
+          return Promise.resolve({ data: null, error: { code: '23503' } });
+        }
         tables[name]!.set(key, structuredClone(row));
+        insertedTables.push(name);
         inserted++;
       }
       return Promise.resolve({ data: null, error: null });
@@ -246,7 +268,8 @@ function memoryDb() {
       return build();
     },
   });
-  return { db: { from: table } as RunDatabase, tables, failNextUpdate: () => { failUpdate = true; },
+  return { db: { from: table } as RunDatabase, tables, insertedTables, buildingCollisions,
+    failBuildingInsert: (code: string) => { buildingInsertError = code; }, failNextUpdate: () => { failUpdate = true; },
     failEventInsertAfter: (count: number) => { eventsBeforeFailure = count; } };
 }
 
@@ -258,6 +281,76 @@ const fresh = newRun({ bundle, map: campusMap, origin: null });
 const pathFor = (run: { run_id: string }) => 'https://example.test/api/d6/runs?run_id=' + run.run_id;
 const put = (run: unknown, expected: number, url = pathFor(run as { run_id: string }), extra = headers) =>
   new Request(url, { method: 'PUT', headers: extra, body: JSON.stringify({ run, expected_revision: expected }) });
+
+const dorm = templates[0]!;
+const presetBundle = fallbackResult(requestFor(dorm), null).bundle;
+const presetRun = newRun({ bundle: { scenario: presetBundle.scenario, ugc_reports: presetBundle.ugc_reports,
+  action_catalog: presetBundle.action_catalog }, map: campusMap, origin: null });
+const firstReport = presetBundle.ugc_reports[0]!;
+const firstVerdict: RunEvent = { kind: 'verdict', seq: 1, t_sim: firstReport.appears_at_sim,
+  payload: { seq: 1, report_id: firstReport.id, judged_at_sim: firstReport.appears_at_sim, verdict: '待核',
+    location: presetBundle.scenario.start_building_id, supersedes_seq: null } };
+const lastNode = presetBundle.scenario.nodes.length - 1;
+const settledPreset = updateRun(presetRun, { ...presetRun.progress, node: lastNode, furthest: lastNode,
+  started: true, finished: true }, [firstVerdict], createEnginePort(presetRun.bundle, campusMap).scoreRound([firstVerdict]));
+const emptySite = memoryDb();
+const emptyRoute = createRunRoute(emptySite.db, () => true);
+const firstSync = await emptyRoute(put(settledPreset, 0));
+assert.equal(firstSync.status, 200, 'first PUT on an empty Sites database');
+assert.deepEqual(await firstSync.json(), { revision: settledPreset.revision });
+assert.deepEqual(emptySite.insertedTables.slice(0, 3), ['campus_buildings', 'disaster_templates', 'scenarios']);
+const startId = presetRun.bundle.scenario.start_building_id;
+assert.deepEqual([...emptySite.tables.campus_buildings!.keys()], [startId]);
+const start = campusMap.buildings.find((building) => building.id === startId)!;
+const { polygon, adjacency, ...buildingFields } = start;
+assert.deepEqual(emptySite.tables.campus_buildings!.get(startId),
+  { ...buildingFields, polygon_json: polygon, adjacency_json: adjacency, is_training: 1 });
+const firstRead = await emptyRoute(new Request(pathFor(settledPreset), { headers }));
+assert.equal(firstRead.status, 200);
+const syncedPreset = importRun(JSON.stringify((await firstRead.json()).run));
+assert.equal(stable(syncedPreset), stable(importRun(exportRun(settledPreset))));
+assert.deepEqual(createEnginePort(syncedPreset.bundle, syncedPreset.map).scoreRound(syncedPreset.events), settledPreset.score);
+const { discrimination, response, coverage, violation, total } = syncedPreset.score!;
+console.log(`D6 empty Sites mock: first PUT 200 revision ${syncedPreset.revision}; building ${startId} before template and scenario; GET 200 and export match; score ${discrimination}/${response}/${coverage}/${violation} = ${total}.`);
+
+const existingBuilding = { ...emptySite.tables.campus_buildings!.get(startId), name: '既有楼栋记录' };
+emptySite.tables.campus_buildings!.set(startId, existingBuilding);
+const nextAttempt = () => newRun({ bundle: presetRun.bundle, map: campusMap, origin: null });
+assert.equal((await emptyRoute(put(nextAttempt(), 0))).status, 200);
+assert.deepEqual(emptySite.tables.campus_buildings!.get(startId), existingBuilding);
+assert.equal(emptySite.insertedTables.filter((name) => name === 'campus_buildings').length, 1);
+
+const otherStart = assembleBundle(requestFor(dorm), { ...dorm.preset, start_building_id: 'N1', road_id: 'R-N1-GATE3' }, 'generated');
+const otherAttempt = newRun({ bundle: { scenario: otherStart.scenario, ugc_reports: otherStart.ugc_reports,
+  action_catalog: otherStart.action_catalog }, map: campusMap, origin: null });
+assert.equal((await emptyRoute(put(otherAttempt, 0))).status, 200);
+assert.deepEqual([...emptySite.tables.campus_buildings!.keys()], [startId, 'N1']);
+assert.equal(emptySite.tables.disaster_templates!.size, 1);
+assert.equal(emptySite.tables.disaster_templates!.get(dorm.id)?.start_building_id, startId);
+
+const raceSite = memoryDb(true);
+const raceRoute = createRunRoute(raceSite.db, () => true);
+const racers = [nextAttempt(), nextAttempt()];
+assert.deepEqual((await Promise.all(racers.map((run) => raceRoute(put(run, 0))))).map((reply) => reply.status), [200, 200]);
+assert.deepEqual(raceSite.buildingCollisions, [startId]);
+assert.equal(raceSite.tables.campus_buildings!.size, 1);
+assert.equal(raceSite.tables.runs!.size, 2);
+
+const failureSite = memoryDb();
+const failureRoute = createRunRoute(failureSite.db, () => true);
+const forged = { ...presetRun, map: { ...campusMap, buildings: campusMap.buildings.map((building) =>
+  building.id === startId ? { ...building, name: '客户端伪造名称' } : building) } };
+const rejected = await failureRoute(put(forged, 0));
+assert.equal(rejected.status, 422);
+assert.deepEqual(await rejected.json(), { code: 'CORRUPT' });
+for (const code of ['42501', '23505']) {
+  failureSite.failBuildingInsert(code);
+  assert.equal((await failureRoute(put(presetRun, 0))).status, 503);
+}
+assert.equal((await failureRoute(new Request(pathFor(presetRun), { headers }))).status, 404);
+assert.deepEqual(failureSite.insertedTables, []);
+console.log('D6 building bootstrap: existing data preserved, same template with another start works, 23505 race recovers, forged snapshot and failed inserts leave no committed run.');
+
 assert.equal((await createRunRoute(mem.db, () => false)(put(fresh, 0))).status, 503);
 assert.equal((await route(put(fresh, 0))).status, 200);
 assert.equal((await route(put(fresh, 0))).status, 200);
@@ -283,6 +376,7 @@ for (const attempt of simulatedAttempts) {
   assert.equal(cloud.status, 200);
   assert.deepEqual((await cloud.json()).run, importRun(exportRun(attempt)));
 }
+assert.equal(mem.tables.campus_buildings!.get('GYM')?.floors, null);
 console.log('D6 all three simulated generated bundles round-trip through PUT, independent GET and exported JSON.');
 
 const second = updateRun(fresh, { node: 0, furthest: 0, started: true, finished: false, speed: 4, elapsed_ms: 1200 },

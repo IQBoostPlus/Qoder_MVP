@@ -1,5 +1,7 @@
 import { stable, validateRun } from '../src/run-store/validation.ts';
 import { RunStoreError, type StoredRun } from '../src/run-store/contracts.ts';
+import { campusMap } from '../src/scenario-generation/templates.ts';
+import type { Building } from '../src/contracts.ts';
 
 type Row = Record<string, unknown>;
 interface DbError { code?: string }
@@ -39,6 +41,13 @@ function scoreFields(score: StoredRun['score']): Row {
   } : {
     score_json: score, total_score: score.total, discrimination: score.discrimination,
     response: score.response, coverage: score.coverage, violation: score.violation,
+  };
+}
+function buildingRow(building: Building): Row {
+  return {
+    id: building.id, name: building.name, zone: building.zone, category: building.category,
+    floors: building.floors, capacity: building.capacity, risk_tag: building.risk_tag,
+    polygon_json: building.polygon, adjacency_json: building.adjacency, is_training: 1,
   };
 }
 function scenarioRow(sid: string, frozen: Row): Row {
@@ -106,6 +115,22 @@ export function createRunRepository(db: RunDatabase) {
       map: frozen.map, origin: head.d6_origin_json ?? null, progress: head.d6_progress_json,
       events, score: head.score_json ?? null,
     });
+  }
+
+  async function ensureStartBuilding(snapshot: StoredRun): Promise<void> {
+    const id = snapshot.bundle.scenario.start_building_id;
+    const find = () => select('campus_buildings', 'id', (query) => query.eq('id', id), 1);
+    if ((await find()).length) return;
+
+    // Client snapshots cannot define rows in the shared campus map.
+    const declared = snapshot.map.buildings.find((building) => building.id === id);
+    const trusted = snapshot.map_version === 'd2-1' && campusMap.buildings.find((building) => building.id === id);
+    if (!declared || !trusted || stable(buildingRow(declared)) !== stable(buildingRow(trusted))) {
+      throw new RunStoreError('CORRUPT', '起始楼栋与可信地图不一致');
+    }
+    const result = await insert('campus_buildings', buildingRow(trusted));
+    if (!result?.error) return;
+    if (!unique(result) || !(await find()).length) throw new Error('database_write_failed');
   }
 
   async function ensureTemplate(frozen: Row): Promise<'ok' | 'conflict'> {
@@ -186,6 +211,7 @@ export function createRunRepository(db: RunDatabase) {
       action_catalog: snapshot.bundle.action_catalog,
       report_ids: snapshot.bundle.ugc_reports.map((report) => report.id),
     } as unknown as Row;
+    await ensureStartBuilding(snapshot);
     if (await ensureTemplate(frozen) === 'conflict') return 'conflict';
     if (await ensureScenario(sid, frozen) === 'conflict') return 'conflict';
     if (await ensureReports(sid, snapshot.bundle.ugc_reports) === 'conflict') return 'conflict';
