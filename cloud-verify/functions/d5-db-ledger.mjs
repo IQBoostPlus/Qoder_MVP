@@ -96,9 +96,10 @@ export function createDatabaseLedger({ db, storage, userHash, runId, now = () =>
 
   async function unresolved() {
     if (!(await runExists())) return legacyLedger.unresolved();
-    const bySlot = summarize(await rows(SLOT_ROWS, 'slot,event,session_id,created_at'));
+    const bySlot = summarize(await rows(SLOT_ROWS, 'slot,event,session_id,created_at,meta'));
     for (const slot of [...SLOTS].reverse()) {
       const events = bySlot.get(slot) ?? {};
+      if (slot === 'review' || JSON.parse(events.sent?.meta ?? '{}')?.phase === 'd7') continue;
       if (events.sent && !events.complete && typeof events.sent.session_id === 'string') {
         return { slot, session_id: events.sent.session_id, sent_at: events.sent.created_at ?? null };
       }
@@ -158,5 +159,29 @@ export function createDatabaseLedger({ db, storage, userHash, runId, now = () =>
     return legacyLedger.trace(value);
   }
 
-  return { claim, matches, reserve, markSent, markComplete, usage, unresolved, save, readResult, recover, trace };
+  function reviewLedger() {
+    const prefix = (slot) => `d7:${slot}:`;
+    async function readReview(slot) {
+      const records = await rows(RESULT_ROWS, 'kind,payload');
+      const intent = records.find((row) => row.kind === prefix(slot) + 'intent');
+      const result = records.find((row) => row.kind === prefix(slot) + 'result');
+      return intent ? { intent: JSON.parse(intent.payload), outcome: result ? JSON.parse(result.payload) : null } : null;
+    }
+    function record(slot, name, value) {
+      const kind = prefix(slot) + name;
+      return insertOnce(RESULT_ROWS, { kind, payload: canonical(value) }, async () =>
+        (await rows(RESULT_ROWS, 'kind')).some((row) => row.kind === kind));
+    }
+    return {
+      claimReview: (slot, intent) => record(slot, 'intent', intent), readReview,
+      saveReview: (slot, result) => record(slot, 'result', result), reserve,
+      markSent: (slot, session) => markSent(slot, session, { phase: 'd7' }), markComplete, usage,
+      async reviewSession(slot) {
+        const sent = (await rows(SLOT_ROWS, 'slot,event,session_id,meta')).find((row) => row.slot === slot && row.event === 'sent');
+        return sent && JSON.parse(sent.meta ?? '{}')?.phase === 'd7' ? sent.session_id : null;
+      },
+    };
+  }
+
+  return { claim, matches, reserve, markSent, markComplete, usage, unresolved, save, readResult, recover, trace, reviewLedger, hasDatabaseRun: runExists };
 }

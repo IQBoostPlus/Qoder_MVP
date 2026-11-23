@@ -1,6 +1,8 @@
 // Same-origin D5 routes for the private verification site.
 import { ValidationError } from './d5-bundle.mjs';
 import { ProviderError, bindingFailure, createD5Service, safeCorrelationId } from './d5-service.mjs';
+import { createDatabaseLedger } from './d5-db-ledger.mjs';
+import { createReviewRoute, createRunRepository, presetReviewRoot, reviewOriginMatches, usesGenerationBudget } from './d6-shared.mjs';
 
 const encoder = new TextEncoder();
 
@@ -61,6 +63,7 @@ export function describeIdentity(user) {
 
 export function createD5Routes({ db, storage, BackendError }) {
   const service = createD5Service({ db, storage });
+  const runs = db ? createRunRepository(db) : null;
 
   function fail(code, status) {
     throw new BackendError(code, status);
@@ -141,6 +144,24 @@ export function createD5Routes({ db, storage, BackendError }) {
       }
       if (!identity) fail(user && typeof user === 'object' ? 'identity_unavailable' : 'identity_required', 401);
       const userHash = await digest(identity.value);
+      if (path === '/api/d7/review') {
+        return createReviewRoute({
+          enabled: () => enabled && envEnabled('D7_ENABLE_REVIEW') && envEnabled('D6_ENABLE_RUN_SYNC') && runs !== null,
+          load: (id, owner) => runs.read(id, owner),
+          async open(run, owner, create) {
+            const generated = usesGenerationBudget(run);
+            const root = generated ? run.origin?.request : await presetReviewRoot(run.run_id);
+            if (!root || typeof root.run_id !== 'string' || !/^[\w-]{12,80}$/.test(root.run_id)) return null;
+            const ledger = createDatabaseLedger({ db, storage, userHash: generated ? userHash : owner, runId: root.run_id });
+            if (generated) {
+              if (!await ledger.hasDatabaseRun() || !await ledger.matches(root)) return null;
+              const result = await ledger.readResult();
+              if (!result || !reviewOriginMatches(run, result.result)) return null;
+            } else if (create && await ledger.claim(root) === 'conflict') return null;
+            return { ledger: ledger.reviewLedger(), provider: service.reviewProvider(userHash) };
+          },
+        })(request);
+      }
       if (path === '/api/d5/scenario' && (method === 'POST' || method === 'GET')) {
         const input = method === 'POST' ? await readBody(request) : query(url);
         const reply = !enabled ? await service.disabled(userHash, input, method)

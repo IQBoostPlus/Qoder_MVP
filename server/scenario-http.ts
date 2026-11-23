@@ -5,6 +5,8 @@ import { getTemplate } from '../src/scenario-generation/templates.ts';
 import { GenerationLedger } from './generation-ledger.ts';
 import { createGenerationService } from './generation-service.ts';
 import { ProviderError, qoderProvider, type GenerationProvider } from './generation-provider.ts';
+import { createReviewRoute } from './review-route.ts';
+import { presetReviewRoot, reviewOriginMatches, usesGenerationBudget } from './review-service.ts';
 
 export const generationPath = '/api/d5/scenario';
 
@@ -22,6 +24,10 @@ function simulated(mode: string): GenerationProvider {
       requests.delete(id);
       if (mode === 'unauthorized') throw new ProviderError('unauthorized', true);
       const payload: unknown = JSON.parse(prompt);
+      if (record(payload) && payload.task === 'd7_review' && Array.isArray(payload.facts)) {
+        return JSON.stringify({ run_id: payload.run_id,
+          items: payload.facts.slice(0, 3).map((fact) => ({ seq: fact.seq, text: fact.choices[0] })) });
+      }
       if (record(payload) && payload.task === 'd6_reports' && Array.isArray(payload.slots)) {
         return JSON.stringify(payload.slots.map((slot) => ({ ...slot, text: slot.text[1] })));
       }
@@ -46,6 +52,24 @@ export function createScenarioHttp(environment: NodeJS.ProcessEnv, allowQoder = 
       : undefined;
   const ledger = new GenerationLedger(D5_LEDGER_PATH || ':memory:');
   const service = createGenerationService(ledger, provider, 14_500, environment.D6_ENABLE_REPORTS === '1');
+  const review = createReviewRoute({
+    enabled: () => environment.D7_ENABLE_REVIEW === '1' && provider?.name === 'simulated',
+    load: async (id, owner) => ledger.reviewRun(id, owner),
+    storeLocal: (run, owner) => ledger.storeReviewRun(run, owner),
+    async open(run, _owner, create) {
+      const generated = usesGenerationBudget(run);
+      const root = generated ? run.origin?.request : await presetReviewRoot(run.run_id);
+      if (!root) return null;
+      if (generated) {
+        const result = ledger.result(root);
+        if (!ledger.matches(root) || !result || !reviewOriginMatches(run, result)) return null;
+      } else if (create && ledger.claim(root) === 'conflict') return null;
+      return { ledger: ledger.reviewLedger(root.run_id), provider: provider?.name === 'simulated' ? {
+        name: 'simulated', prepare: ({ request_id }, signal) => provider.prepare({ ...root, request_id }, signal),
+        send: provider.send, read: provider.read,
+      } : undefined };
+    },
+  });
 
   function json(response: ServerResponse, status: number, value: unknown): void {
     response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -54,6 +78,23 @@ export function createScenarioHttp(environment: NodeJS.ProcessEnv, allowQoder = 
 
   async function handle(request: IncomingMessage, response: ServerResponse, next: () => void): Promise<void> {
     const url = new URL(request.url ?? '/', 'http://localhost');
+    if (url.pathname === '/api/d7/review') {
+      try {
+        let body: string | undefined;
+        if (request.method === 'POST') {
+          body = '';
+          for await (const chunk of request) {
+            body += String(chunk);
+            if (body.length > 1_000_000) { json(response, 413, { code: 'BODY_TOO_LARGE' }); return; }
+          }
+        }
+        const headers = new Headers();
+        for (const [name, value] of Object.entries(request.headers)) if (typeof value === 'string') headers.set(name, value);
+        const reply = await review(new Request(url, { method: request.method, headers, body }));
+        json(response, reply.status, await reply.json());
+      } catch { json(response, 503, { code: 'REVIEW_UNAVAILABLE' }); }
+      return;
+    }
     if (url.pathname !== generationPath) { next(); return; }
     if (request.method !== 'POST' && request.method !== 'GET') {
       json(response, 405, { code: 'METHOD_NOT_ALLOWED' }); return;

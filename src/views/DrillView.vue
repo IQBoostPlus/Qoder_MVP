@@ -22,6 +22,8 @@ import {
 import { buildRouteQuery, endpointOptions, endpointName, locationOptions, UNLOCATABLE } from '../config/route-query';
 import { closedStamp, formatSimTime, simStamp, seqLabel } from '../config/format';
 import { REVIEW_SUMMARY_BADGE, buildReviewSummary } from '../config/review-summary';
+import { createReviewClient, localReview, requestReview, reviewPath } from '../review-client';
+import type { ReviewReply } from '../review-contract';
 import { learnerReportText, ORDER_EFFECT, VERDICT_GUIDANCE } from '../config/drill-guidance';
 import CampusMap from '../components/CampusMap.vue';
 import DrillReportScene from '../components/DrillReportScene.vue';
@@ -29,7 +31,7 @@ import RoutePanel from '../components/RoutePanel.vue';
 import ScorePanel from '../components/ScorePanel.vue';
 import OccupancyBars from '../components/OccupancyBars.vue';
 
-const { port, fixture, saved, runSaved } = defineProps<{ port: EnginePort; fixture: RoundData; saved: StoredRun; runSaved: boolean }>();
+const { port, fixture, saved, runSaved, cloudSynced } = defineProps<{ port: EnginePort; fixture: RoundData; saved: StoredRun; runSaved: boolean; cloudSynced: boolean }>();
 const emit = defineEmits<{
   checkpoint: [runId: string, progress: RunProgress, events: RunEvent[], score: StoredRun['score']];
   restart: [];
@@ -633,6 +635,45 @@ const summaryLines = computed(() => reviewResult.value
       locationName,
     })
   : []);
+const reviewEndpoint = reviewPath();
+const commentaryReply = ref<ReviewReply | null>(null);
+const reviewClient = reviewEndpoint ? createReviewClient((action, run, requestId) => requestReview(reviewEndpoint, action, run, requestId),
+  (reply) => { commentaryReply.value = reply; }) : null;
+const hasReviewedAction = computed(() => saved.events.some(({ kind }) => kind === 'action'));
+const commentaryStatus = computed(() => {
+  const reply = commentaryReply.value;
+  if (reply?.source === 'ai') return 'AI 点评';
+  if (reply?.source === 'simulated') return '模拟点评';
+  if (reply?.reason === 'timeout' && reply.calls === 4) return '本轮模型预算已用完 · 可查询原点评';
+  if (reply?.reason === 'timeout') return '已显示摘要 · 可查询原点评';
+  if (reply?.status === 'pending') return '点评生成中';
+  if (reply?.reason === 'budget' || (reply?.calls !== null && reply?.calls === 4)) return '本轮模型预算已用完';
+  if (reply?.reason === 'not_synced') return '同步本轮后可生成点评';
+  if (reply?.reason === 'unauthorized') return '登录后可生成点评';
+  if (reply?.reason === 'offline' || reply?.reason === 'network') return '点评暂不可用，已保留摘要';
+  if (reply?.reason === 'no_actions') return '本轮没有可引用的动作';
+  return reviewEndpoint ? '预置摘要' : REVIEW_SUMMARY_BADGE;
+});
+function openCommentary(action: 'read' | 'start' | 'retry'): void {
+  if (!reviewClient || !saved.progress.finished) return;
+  if (!hasReviewedAction.value) { commentaryReply.value = localReview(runId, 'no_actions'); return; }
+  if (action === 'start' && reviewEndpoint !== '/api/d7/review' && !cloudSynced) {
+    commentaryReply.value = localReview(runId, 'not_synced'); return;
+  }
+  const id = action === 'read' ? commentaryReply.value?.request_id ?? null : crypto.randomUUID();
+  void reviewClient.execute(action, saved, id);
+}
+onMounted(() => { if (saved.progress.finished) openCommentary('read'); });
+onUnmounted(() => reviewClient?.detach());
+watch(() => cloudSynced, (synced) => {
+  if (synced && commentaryReply.value?.reason === 'not_synced') openCommentary('start');
+});
+async function focusReviewEvent(seq: number): Promise<void> {
+  await backToTimeline();
+  const row = document.getElementById(`review-event-${seq}`);
+  row?.scrollIntoView({ block: 'nearest' });
+  row?.focus({ preventScroll: true });
+}
 
 const sortExpanded = ref(false);
 const sortDraft = ref<string[]>([]);
@@ -723,6 +764,7 @@ watch([autoReady, autoDelay, currentT, () => drill.currentEvents.value.length], 
 async function finishDrill(): Promise<void> {
   if (!drill.finishDrill()) return;
   await showSide('review');
+  openCommentary('start');
 }
 async function openReviewLog(): Promise<void> {
   logOpen.value = true;
@@ -832,7 +874,7 @@ function openReset(): void {
         <summary>本轮时间线 <span>{{ timelineRows.length }}</span></summary>
         <div class="tool-content">
           <ol v-if="timelineRows.length" class="ledger-list" id="review-timeline">
-            <li v-for="row in timelineRows" :key="row.key">
+            <li v-for="row in timelineRows" :id="`review-event-${row.seq}`" :key="row.key" tabindex="-1">
               <span class="ledger-stamp">{{ formatSimTime(row.stamp) }} · {{ row.kindLabel }} · {{ seqLabel(row.seq) }}</span>
               <strong>{{ row.detail }}</strong>
               <span :class="row.tone">{{ row.state }}</span>
@@ -858,10 +900,22 @@ function openReset(): void {
         <p v-else class="work-muted">评分器未记录失误。</p>
       </section>
       <section class="review-summary" aria-labelledby="review-summary-heading">
-        <h3 id="review-summary-heading">本轮小结 <span class="work-chip">{{ REVIEW_SUMMARY_BADGE }}</span></h3>
+        <h3 id="review-summary-heading">本轮小结 <span class="work-chip" role="status">{{ commentaryStatus }}</span></h3>
         <ul class="summary-list">
           <li v-for="(line, index) in summaryLines" :key="index">{{ line }}</li>
         </ul>
+        <ul v-if="commentaryReply?.items.length" class="summary-list">
+          <li v-for="item in commentaryReply.items" :key="item.seq">{{ item.text }}
+            <button type="button" class="btn work-small" @click="focusReviewEvent(item.seq)">查看第{{ item.seq }}条</button>
+          </li>
+        </ul>
+        <div v-if="reviewEndpoint && hasReviewedAction" class="work-controls">
+          <button type="button" class="btn work-small" @click="openCommentary('read')">查询点评</button>
+          <button v-if="commentaryReply?.status === 'missing' && (cloudSynced || reviewEndpoint === '/api/d7/review')"
+            type="button" class="btn work-small" @click="openCommentary('start')">生成点评</button>
+          <button type="button" class="btn work-small" :disabled="!commentaryReply?.can_regenerate"
+            @click="openCommentary('retry')">重新生成点评</button>
+        </div>
       </section>
     </section>
 

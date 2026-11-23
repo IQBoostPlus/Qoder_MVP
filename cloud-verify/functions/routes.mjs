@@ -126,7 +126,7 @@ export function application({ db, storage, requireUser, BackendError }) {
     if (path === '/api/d6/runs') return handleD6(request);
     const user = await requireUser(ctx);
 
-    if (path.startsWith('/api/d5/')) {
+    if (path.startsWith('/api/d5/') || path === '/api/d7/review') {
       const response = await handleD5(ctx, path, user);
       if (response) return response;
       fail('not_found', 404);

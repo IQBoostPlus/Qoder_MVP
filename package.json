@@ -19,6 +19,7 @@
     "check:d5": "npm run check:d4 && tsx scripts/validate-d5.ts && tsx scripts/verify-d5-cloud-port.mjs && node scripts/verify-d5-cloud-ledger.mjs && node scripts/verify-d5-identity.mjs",
     "build:sites:d6": "node scripts/build-d6-sites.mjs",
     "check:d6": "npm run check:d5 && tsx scripts/validate-d6.ts",
+    "check:d7": "npm run check:d6 && tsx scripts/validate-d7.ts",
     "scenario:server": "tsx server/index.ts"
   },
   "devDependencies": {

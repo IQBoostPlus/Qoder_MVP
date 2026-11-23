@@ -17,6 +17,7 @@ await build({
   define: {
     'import.meta.env.VITE_D5_SCENARIO_PATH': JSON.stringify('/functions/v1/app/api/d5/scenario'),
     'import.meta.env.VITE_D6_RUN_PATH': JSON.stringify('/functions/v1/app/api/d6/runs'),
+    'import.meta.env.VITE_D7_REVIEW_PATH': JSON.stringify('/functions/v1/app/api/d7/review'),
   },
   build: { outDir: resolve(staticRoot, 'd6'), emptyOutDir: false },
 });

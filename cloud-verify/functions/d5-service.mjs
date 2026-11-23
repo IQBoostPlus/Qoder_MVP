@@ -781,6 +781,21 @@ export function createD5Service({ db, storage }) {
     };
   }
 
+  function reviewProvider(userHash) {
+    return {
+      name: 'qoder',
+      async prepare(intent, signal) {
+        const binding = await ensureResources(storage, userHash, signal);
+        return prepareSession(binding, { ...intent, template_id: 'D7 review' }, signal);
+      },
+      async send(session, prompt, signal) {
+        await sendPrompt(session, prompt, signal);
+        return waitReply(session, signal);
+      },
+      read: readSession,
+    };
+  }
+
   async function seed(userHash, input, slots) {
     const request = validateRequest(input);
     const ledger = ledgerFor(userHash, request.run_id);
@@ -799,7 +814,7 @@ export function createD5Service({ db, storage }) {
     return { usage: await ledger.usage(), result: await ledger.readResult(), instance: INSTANCE };
   }
 
-  return { generate, recover, disabled, claimLastSlot, interrupt, diag, warm, seed, stats, upstream, bindingStatus, instance: INSTANCE };
+  return { generate, recover, disabled, claimLastSlot, interrupt, diag, warm, seed, stats, upstream, bindingStatus, reviewProvider, instance: INSTANCE };
 }
 
 export { MODEL_WAIT_MS, GENERATION_WAIT_MS };

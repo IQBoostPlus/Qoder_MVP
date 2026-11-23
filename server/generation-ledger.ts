@@ -1,5 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import type { GenerationRequest, GenerationResult } from '../src/scenario-generation/contracts';
+import type { StoredRun } from '../src/run-store/contracts';
+import type { Intent, Outcome, ReviewLedger } from './review-service.ts';
 
 export type BudgetSlot = 'scenario' | 'reports' | 'review' | 'retry';
 type SlotState = 'reserved' | 'sent' | 'complete';
@@ -22,6 +24,13 @@ export class GenerationLedger {
         slot TEXT NOT NULL CHECK (slot IN ('scenario','reports','review','retry')),
         state TEXT NOT NULL CHECK (state IN ('reserved','sent','complete')),
         session_id TEXT, PRIMARY KEY (run_id, slot)
+      );
+      CREATE TABLE IF NOT EXISTS generation_review_records (
+        run_id TEXT NOT NULL REFERENCES generation_requests(run_id),
+        kind TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY (run_id, kind)
+      );
+      CREATE TABLE IF NOT EXISTS generation_review_runs (
+        run_id TEXT PRIMARY KEY, owner TEXT NOT NULL, snapshot TEXT NOT NULL
       );
     `);
   }
@@ -73,7 +82,10 @@ export class GenerationLedger {
   }
 
   unresolved(runId: string): { slot: BudgetSlot; session_id: string } | undefined {
-    return this.db.prepare("SELECT slot, session_id FROM generation_slots WHERE run_id=? AND state='sent' AND session_id IS NOT NULL ORDER BY rowid DESC LIMIT 1")
+    return this.db.prepare(`SELECT slot, session_id FROM generation_slots AS slots
+      WHERE run_id=? AND state='sent' AND session_id IS NOT NULL AND slot<>'review'
+      AND NOT EXISTS (SELECT 1 FROM generation_review_records AS reviews WHERE reviews.run_id=slots.run_id AND reviews.kind=slots.slot || ':sent')
+      ORDER BY rowid DESC LIMIT 1`)
       .get(runId) as { slot: BudgetSlot; session_id: string } | undefined;
   }
 
@@ -85,6 +97,46 @@ export class GenerationLedger {
   recover(previous: GenerationResult, result: GenerationResult): void {
     this.db.prepare('UPDATE generation_requests SET result=? WHERE run_id=? AND request_id=? AND result=?')
       .run(JSON.stringify(result), result.request.run_id, result.request.request_id, JSON.stringify(previous));
+  }
+
+  reviewRun(id: string, owner: string): StoredRun | null {
+    const row = this.db.prepare('SELECT snapshot FROM generation_review_runs WHERE run_id=? AND owner=?').get(id, owner);
+    return row ? JSON.parse(String(row.snapshot)) as StoredRun : null;
+  }
+
+  storeReviewRun(run: StoredRun, owner: string): StoredRun | null {
+    this.db.prepare('INSERT OR IGNORE INTO generation_review_runs VALUES (?, ?, ?)').run(run.run_id, owner, JSON.stringify(run));
+    return this.reviewRun(run.run_id, owner);
+  }
+
+  reviewLedger(runId: string): ReviewLedger {
+    const read = <T>(kind: string): T | null => {
+      const row = this.db.prepare('SELECT payload FROM generation_review_records WHERE run_id=? AND kind=?').get(runId, kind);
+      return row ? JSON.parse(String(row.payload)) as T : null;
+    };
+    const insert = (kind: string, payload: unknown) => this.db.prepare('INSERT OR IGNORE INTO generation_review_records VALUES (?, ?, ?)')
+      .run(runId, kind, JSON.stringify(payload)).changes === 1;
+    return {
+      claimReview: (slot, intent) => insert(`${slot}:intent`, intent),
+      readReview: (slot) => {
+        const intent = read<Intent>(`${slot}:intent`);
+        return intent ? { intent, outcome: read<Outcome>(`${slot}:result`) } : null;
+      },
+      saveReview: (slot, outcome) => { insert(`${slot}:result`, outcome); },
+      reserve: (slot) => this.reserve(runId, slot),
+      markSent: (slot, session) => {
+        this.db.exec('BEGIN IMMEDIATE');
+        try {
+          const sent = this.markSent(runId, slot, session);
+          if (sent) insert(`${slot}:sent`, session);
+          this.db.exec('COMMIT');
+          return sent;
+        } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+      },
+      markComplete: (slot) => this.markComplete(runId, slot),
+      reviewSession: (slot) => read<string>(`${slot}:sent`),
+      usage: () => this.usage(runId),
+    };
   }
 
   close(): void { this.db.close(); }

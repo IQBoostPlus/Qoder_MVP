@@ -3933,7 +3933,7 @@ const canonical = {
 	}
 };
 const campusMap = campus_map_default;
-canonical.action_catalog;
+const actionCatalog = canonical.action_catalog;
 canonical.scenario.resources;
 canonical.scenario.playback_speeds;
 // src/scenario-generation/bundle.ts
@@ -4577,6 +4577,16 @@ function createRunRepository(db) {
 	};
 }
 // server/run-route.ts
+async function readRunAccess(request) {
+	const key = request.headers.get("x-run-key");
+	const id = new URL(request.url).searchParams.get("run_id");
+	if (!key || !/^[a-f0-9]{64}$/.test(key) || !id || !/^[\w-]{12,80}$/.test(id)) return null;
+	const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key));
+	return {
+		id,
+		owner: Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("")
+	};
+}
 function createRunRoute(db, enabled) {
 	const repository = db ? createRunRepository(db) : null;
 	const json = (data, status = 200) => Response.json(data, {
@@ -4587,12 +4597,9 @@ function createRunRoute(db, enabled) {
 		if (!enabled() || !repository) return json({ code: "CLOUD_UNAVAILABLE" }, 503);
 		if (request.headers.get("sec-fetch-site") === "cross-site") return json({ code: "CROSS_ORIGIN" }, 403);
 		if (request.method !== "GET" && request.method !== "PUT") return json({ code: "METHOD" }, 405);
-		const key = request.headers.get("x-run-key");
-		if (!key || !/^[a-f0-9]{64}$/.test(key)) return json({ code: "NOT_FOUND" }, 404);
-		const id = new URL(request.url).searchParams.get("run_id");
-		if (!id || !/^[\w-]{12,80}$/.test(id)) return json({ code: "NOT_FOUND" }, 404);
-		const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key));
-		const owner = Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
+		const access = await readRunAccess(request);
+		if (!access) return json({ code: "NOT_FOUND" }, 404);
+		const { id, owner } = access;
 		try {
 			const stored = await repository.read(id, owner);
 			if (request.method === "GET") return stored ? json({ run: stored }) : json({ code: "NOT_FOUND" }, 404);
@@ -4817,4 +4824,262 @@ async function generateReports(scenario, io, signal) {
 	}
 	return fallback("invalid_candidate");
 }
-export { createRunRoute, generateReports };
+// server/review-facts.ts
+function reviewFacts(run) {
+	const score = createEnginePort(run.bundle, run.map).scoreRound(run.events);
+	const actionEvents = run.events.filter((event) => event.kind === "action");
+	const facts = actionEvents.map(({ seq, t_sim, payload }) => {
+		const action = actionCatalog.find(({ id }) => id === payload.action_id)?.name ?? "未识别动作";
+		const target = [
+			...campusMap.buildings,
+			...campusMap.road_segments,
+			...campusMap.junctions
+		].find(({ id }) => id === payload.target_id)?.name ?? "无效目标";
+		const outcome = payload.status === "rejected" ? "被规则拒绝" : payload.completed_at_sim !== null && payload.completed_at_sim <= run.bundle.scenario.t_end ? "在结算前完成" : "结算时尚未完成";
+		const basis = score.details.violation_event_seqs.includes(seq) ? "评分器记为重复违规" : score.details.first_response_action_seq === seq ? "评分器计入首报响应" : null;
+		const statement = `第${seq}条在 T+${t_sim} 秒对「${target}」提交「${action}」，${outcome}${basis ? "，" + basis : ""}。`;
+		const choices = [`本轮模拟中，${statement}`, `回看本轮流水，${statement}`];
+		if (payload.action_id === "A4" && actionEvents.some((prior) => prior.seq < seq && prior.payload.action_id === "A3" && prior.payload.target_id === payload.target_id && prior.payload.status === "accepted" && prior.payload.completed_at_sim !== null && prior.payload.completed_at_sim <= t_sim)) choices.push(`本轮完成警戒后才提交疏散，对应第${seq}条操作。`);
+		return {
+			seq,
+			t_sim,
+			action,
+			target,
+			outcome,
+			basis,
+			choices
+		};
+	});
+	return {
+		run_id: run.run_id,
+		facts
+	};
+}
+function reviewPrompt(input) {
+	return JSON.stringify({
+		task: "d7_review",
+		instruction: "只回顾这场已结束的模拟训练。选择 1 至 3 条有代表性的流水，每条原样采用该流水 choices 内的一句。禁止真实事件指挥、补写事实或评分。只输出 JSON。",
+		run_id: input.run_id,
+		output: {
+			run_id: input.run_id,
+			items: [{
+				seq: "本轮操作序号",
+				text: "该条候选句"
+			}]
+		},
+		facts: input.facts
+	});
+}
+const realCommand = /立即疏散|马上撤离|请(?:立刻|立即|马上)|(?:拨打|致电)\s*(?:119|110|120)|(?:真实|实际)事件(?:中|时)?(?:请|应当|必须)|现在(?:派人|组织|指挥)/u;
+function parseReview(raw, input) {
+	if (raw.length > 12e3) return "invalid_output";
+	let value;
+	try {
+		value = JSON.parse(raw);
+	} catch {
+		return "invalid_output";
+	}
+	if (!record(value) || Object.keys(value).length !== 2 || typeof value.run_id !== "string" || !Array.isArray(value.items) || value.items.length < 1 || value.items.length > 3) return "invalid_output";
+	if (value.run_id !== input.run_id) return "bad_reference";
+	const items = [];
+	for (const item of value.items) {
+		if (!record(item) || Object.keys(item).length !== 2 || typeof item.text !== "string" || typeof item.seq !== "number" || !Number.isSafeInteger(item.seq) || item.text.length > 240) return "invalid_output";
+		if (realCommand.test(item.text)) return "unsafe_text";
+		const fact = input.facts.find(({ seq }) => seq === item.seq);
+		if (!fact || items.some(({ seq }) => seq === item.seq)) return "bad_reference";
+		if (!fact.choices.includes(item.text)) return "fact_mismatch";
+		items.push({
+			seq: item.seq,
+			text: item.text
+		});
+	}
+	return items;
+}
+// server/review-service.ts
+const summary = (reason) => ({
+	source: "summary",
+	items: [],
+	reason
+});
+function summaryReply(run_id, reason, request_id = null, calls = null, status = "ready") {
+	return {
+		run_id,
+		request_id,
+		status,
+		...summary(reason),
+		calls,
+		can_regenerate: false
+	};
+}
+function reviewOriginMatches(run, result) {
+	const { bundle, origin } = run;
+	if (!origin || !result.bundle) return false;
+	return origin.selection === result.selection && origin.provider === result.provider && origin.report_source === result.report_source && stable(origin.request) === stable(result.request) && stable({
+		...bundle.scenario,
+		id: result.bundle.scenario.id
+	}) === stable(result.bundle.scenario) && stable(bundle.ugc_reports) === stable(result.bundle.ugc_reports) && stable(bundle.action_catalog) === stable(result.bundle.action_catalog);
+}
+function usesGenerationBudget(run) {
+	return run.bundle.scenario.source === "generated" || Boolean(run.origin && run.origin.selection !== "preset");
+}
+async function presetReviewRoot(runId) {
+	const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("d7-preset:" + runId));
+	const id = "review_" + Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+	return {
+		run_id: id,
+		request_id: id,
+		template_id: "TPL-NIGHT-DORM-01",
+		modifiers: []
+	};
+}
+function createReviewService(ledger, provider, waitMs = 14500) {
+	async function read(run, requestId) {
+		const [first, retry, usage] = await Promise.all([
+			ledger.readReview("review"),
+			ledger.readReview("retry"),
+			ledger.usage()
+		]);
+		const attempt = [retry, first].find((value) => value?.intent.run_id === run.run_id && (!requestId || value.intent.request_id === requestId));
+		if (!attempt) return summaryReply(run.run_id, "pending", requestId ?? null, usage.calls, "missing");
+		if (!attempt.outcome) return summaryReply(run.run_id, "pending", attempt.intent.request_id, usage.calls, "pending");
+		return {
+			...attempt.intent,
+			status: "ready",
+			...attempt.outcome,
+			calls: usage.calls,
+			can_regenerate: Boolean(provider && attempt === first && !retry && !usage.shared_retry_used && usage.calls < 4)
+		};
+	}
+	async function settle(run, slot, raw) {
+		const parsed = parseReview(raw, reviewFacts(run));
+		await ledger.markComplete(slot);
+		await ledger.saveReview(slot, typeof parsed === "string" ? summary(parsed) : {
+			source: provider?.name === "qoder" ? "ai" : "simulated",
+			items: parsed,
+			reason: null
+		});
+	}
+	async function start(run, requestId, slot) {
+		const existing = await ledger.readReview(slot);
+		if (existing?.intent.run_id === run.run_id && existing.intent.request_id === requestId) return read(run, requestId);
+		const usage = await ledger.usage();
+		if (existing) return summaryReply(run.run_id, existing.intent.run_id === run.run_id ? "conflict" : "budget", requestId, usage.calls);
+		if (!provider) return summaryReply(run.run_id, "not_configured", requestId, usage.calls);
+		const input = reviewFacts(run);
+		if (!input.facts.length) return summaryReply(run.run_id, "no_actions", requestId, usage.calls);
+		if (slot === "retry") {
+			const first = await ledger.readReview("review");
+			if (first?.intent.run_id !== run.run_id || first.intent.request_id === requestId) return summaryReply(run.run_id, "conflict", requestId, usage.calls);
+			if (!first.outcome) return summaryReply(run.run_id, "pending", first.intent.request_id, usage.calls, "pending");
+		}
+		if (usage.calls >= 4 || slot === "retry" && usage.shared_retry_used) return summaryReply(run.run_id, "budget", requestId, usage.calls);
+		const intent = {
+			run_id: run.run_id,
+			request_id: requestId
+		};
+		if (!await ledger.claimReview(slot, intent)) {
+			const reply = await read(run, requestId);
+			return reply.status === "missing" ? summaryReply(run.run_id, "conflict", requestId, reply.calls) : reply;
+		}
+		if (!await ledger.reserve(slot)) {
+			await ledger.saveReview(slot, summary("budget"));
+			return read(run, requestId);
+		}
+		const signal = AbortSignal.timeout(waitMs);
+		let sent = false;
+		try {
+			const session = await provider.prepare(intent, signal);
+			signal.throwIfAborted();
+			if (!await ledger.markSent(slot, session)) return read(run, requestId);
+			sent = true;
+			await settle(run, slot, await provider.send(session, reviewPrompt(input), signal));
+		} catch (error) {
+			const definitive = typeof error === "object" && error !== null && "definitive" in error && error.definitive === true;
+			if (sent && !definitive) return read(run, requestId);
+			if (sent) await ledger.markComplete(slot);
+			await ledger.saveReview(slot, summary(signal.aborted ? "timeout" : "network"));
+		}
+		return read(run, requestId);
+	}
+	async function recover(run, requestId) {
+		const reply = await read(run, requestId);
+		if (reply.status !== "pending" || !provider?.read || !reply.request_id) return reply;
+		const retry = await ledger.readReview("retry");
+		const slot = retry?.intent.request_id === reply.request_id && retry.intent.run_id === run.run_id ? "retry" : "review";
+		const session = await ledger.reviewSession(slot);
+		if (!session) return reply;
+		let raw;
+		try {
+			raw = await provider.read(session, AbortSignal.timeout(2500));
+		} catch {
+			return reply;
+		}
+		if (!raw) return reply;
+		await settle(run, slot, raw);
+		return read(run, requestId);
+	}
+	return {
+		start,
+		recover
+	};
+}
+// server/review-route.ts
+function createReviewRoute(options) {
+	const json = (body, status = 200) => Response.json(body, {
+		status,
+		headers: { "Cache-Control": "no-store" }
+	});
+	return async (request) => {
+		if (request.headers.get("sec-fetch-site") === "cross-site") return json({ code: "CROSS_ORIGIN" }, 403);
+		if (request.method !== "GET" && request.method !== "POST") return json({ code: "METHOD" }, 405);
+		const access = await readRunAccess(request);
+		if (!access) return json({ code: "NOT_FOUND" }, 404);
+		const { id, owner } = access;
+		if (!options.enabled()) return json(summaryReply(id, "not_configured"));
+		try {
+			let run = await options.load(id, owner);
+			let requestId = new URL(request.url).searchParams.get("request_id") ?? void 0;
+			let retry = false;
+			if (request.method === "POST") {
+				if (!request.headers.get("content-type")?.startsWith("application/json")) return json({ code: "CONTENT_TYPE" }, 415);
+				const reader = request.body?.pipeThrough(new TextDecoderStream()).getReader();
+				if (!reader) return json({ code: "REQUEST" }, 400);
+				let text = "";
+				try {
+					for (;;) {
+						const { done, value } = await reader.read();
+						if (done) break;
+						text += value;
+						if (text.length > 1e6) {
+							await reader.cancel();
+							return json({ code: "TOO_LARGE" }, 413);
+						}
+					}
+				} finally {
+					reader.releaseLock();
+				}
+				const input = JSON.parse(text);
+				if (!record(input) || typeof input.request_id !== "string" || !/^[\w-]{12,80}$/.test(input.request_id) || input.mode !== "start" && input.mode !== "retry") return json({ code: "REQUEST" }, 400);
+				requestId = input.request_id;
+				retry = input.mode === "retry";
+				if (input.run !== void 0 && options.storeLocal) {
+					const incoming = validateRun(input.run);
+					if (incoming.run_id !== id || !incoming.progress.finished) return json({ code: "REQUEST" }, 400);
+					run = options.storeLocal(incoming, owner);
+				}
+			}
+			if (requestId !== void 0 && !/^[\w-]{12,80}$/.test(requestId)) return json({ code: "REQUEST" }, 400);
+			if (!run || !run.progress.finished) return json(summaryReply(id, "not_synced", requestId ?? null, null, "missing"), 404);
+			if (!run.events.some(({ kind }) => kind === "action")) return json(summaryReply(id, "no_actions", requestId ?? null, null));
+			const scope = await options.open(run, owner, request.method === "POST");
+			if (!scope) return json(summaryReply(id, "origin_unverified", requestId ?? null));
+			const service = createReviewService(scope.ledger, scope.provider);
+			const reply = request.method === "POST" ? await service.start(run, requestId, retry ? "retry" : "review") : await service.recover(run, requestId);
+			return json(reply, reply.status === "pending" ? 202 : reply.status === "missing" ? 404 : 200);
+		} catch (error) {
+			if (error instanceof SyntaxError) return json({ code: "REQUEST" }, 400);
+			return json(summaryReply(id, "network"), 503);
+		}
+	};
+}
+export { createReviewRoute, createRunRepository, createRunRoute, generateReports, presetReviewRoot, reviewOriginMatches, usesGenerationBudget };

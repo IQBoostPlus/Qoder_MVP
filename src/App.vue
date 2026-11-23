@@ -245,7 +245,7 @@ watchEffect(() => {
       </div>
       <KeepAlive v-if="round && saved" :key="round.id" :max="1">
         <DrillView v-if="tab === 'drill'" :key="round.id" :port="round.port" :fixture="round.data"
-          :saved="saved" :run-saved="runSaved" @checkpoint="checkpoint" @restart="restart">
+          :saved="saved" :run-saved="runSaved" :cloud-synced="syncedRevision === saved.revision" @checkpoint="checkpoint" @restart="restart">
           <template #run-tools="{ save }">
             <section class="run-file-tools" aria-labelledby="run-tools-heading">
               <h3 id="run-tools-heading">本轮记录</h3>

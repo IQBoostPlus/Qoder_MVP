@@ -5,6 +5,14 @@ import { createRunRepository, type RunDatabase } from './run-repository.ts';
 
 export type { RunDatabase } from './run-repository.ts';
 
+export async function readRunAccess(request: Request): Promise<{ id: string; owner: string } | null> {
+  const key = request.headers.get('x-run-key');
+  const id = new URL(request.url).searchParams.get('run_id');
+  if (!key || !/^[a-f0-9]{64}$/.test(key) || !id || !/^[\w-]{12,80}$/.test(id)) return null;
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key));
+  return { id, owner: Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('') };
+}
+
 export function createRunRoute(db: RunDatabase | null, enabled: () => boolean) {
   const repository = db ? createRunRepository(db) : null;
   const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -12,12 +20,9 @@ export function createRunRoute(db: RunDatabase | null, enabled: () => boolean) {
     if (!enabled() || !repository) return json({ code: 'CLOUD_UNAVAILABLE' }, 503);
     if (request.headers.get('sec-fetch-site') === 'cross-site') return json({ code: 'CROSS_ORIGIN' }, 403);
     if (request.method !== 'GET' && request.method !== 'PUT') return json({ code: 'METHOD' }, 405);
-    const key = request.headers.get('x-run-key');
-    if (!key || !/^[a-f0-9]{64}$/.test(key)) return json({ code: 'NOT_FOUND' }, 404);
-    const id = new URL(request.url).searchParams.get('run_id');
-    if (!id || !/^[\w-]{12,80}$/.test(id)) return json({ code: 'NOT_FOUND' }, 404);
-    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key));
-    const owner = Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('');
+    const access = await readRunAccess(request);
+    if (!access) return json({ code: 'NOT_FOUND' }, 404);
+    const { id, owner } = access;
     try {
       const stored: StoredRun | null = await repository.read(id, owner);
       if (request.method === 'GET') return stored ? json({ run: stored }) : json({ code: 'NOT_FOUND' }, 404);
