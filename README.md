@@ -27,6 +27,7 @@
 | [`docs/handoff-d4.md`](docs/handoff-d4.md) | 实时评分、末回合排序、逐条反馈、验证结果及后续接入 |
 | [`docs/handoff-d5.md`](docs/handoff-d5.md) | 三套预置、生成接口、校验、回退、用量与联调 |
 | [`docs/handoff-d6.md`](docs/handoff-d6.md) | 整批上报、轮次保存恢复、数据库映射与 B 联调 |
+| [D8 引擎方法与评分](docs/d8-engine-methods.md) | AI 参与边界、手算分支、地图及训练数据出处。现场使用 [D8 导调与取证单](docs/d8-live-drill.md) |
 | [`src/engine-port.ts`](src/engine-port.ts) | 应用入口：地图、路径、回放、动作判定与学员评分 |
 | [`src/fixture-port.ts`](src/fixture-port.ts) | D1 地图派生、可见性、判断窗、回放、静态评分与静态路径空态 |
 | [`db/README.md`](db/README.md) | Sites 候选迁移、字段映射与本地读回验证 |

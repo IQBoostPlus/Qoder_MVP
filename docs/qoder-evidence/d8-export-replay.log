@@ -1,0 +1,77 @@
+Environment: local Node; training fixture, no learner or recording
+Command: npx --no-install tsx scripts/replay-run.ts --sample <temporary directory>/d8-rehearsal-jia.json
+
+已写出固定演练样例（无真人操作）：d8-rehearsal-jia.json
+Exit: 0
+
+Command: npx --no-install tsx scripts/replay-run.ts <temporary directory>/d8-rehearsal-jia.json
+
+{
+  "run_id": "d8-example-run-jia-1x",
+  "scenario_id": "SC-NIGHT-DORM-01",
+  "template_id": "TPL-NIGHT-DORM-01",
+  "scenario_source": "canonical",
+  "report_source": "preset",
+  "revision": 2,
+  "events": 21,
+  "simulation_end_seconds": 300,
+  "operation_elapsed_ms": 0,
+  "score": {
+    "discrimination": 80,
+    "response": 100,
+    "coverage": 80,
+    "violation": 70,
+    "total": 83
+  },
+  "details": {
+    "correct_judgments": 8,
+    "total_reports": 10,
+    "wrong_report_ids": [
+      "U5",
+      "U10"
+    ],
+    "first_real_report_id": "U1",
+    "first_response_action_seq": 1,
+    "response_seconds": 45,
+    "coverage_hit_weights": 8,
+    "coverage_total_weights": 10,
+    "missed_items": [
+      {
+        "action_id": "A4",
+        "target_id": "N7",
+        "label": "广播疏散 萃园 7 幢（北 7）"
+      }
+    ],
+    "violation_count": 2,
+    "violation_event_seqs": [
+      14,
+      20
+    ]
+  },
+  "location": {
+    "correct": 10,
+    "total": 10,
+    "percent": 100
+  },
+  "sorting": {
+    "actual": [
+      "U2",
+      "U8",
+      "U4"
+    ],
+    "expected": [
+      "U2",
+      "U8",
+      "U4"
+    ],
+    "correct": true
+  },
+  "validated": true
+}
+Exit: 0
+
+Negative check: change only score.total from 83 to 84
+Command: npx --no-install tsx scripts/replay-run.ts <temporary directory>/changed-score.json
+
+评分缓存与流水复算不一致
+Exit: 1 (expected 1)

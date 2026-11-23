@@ -1,0 +1,6 @@
+Inspected: 2026-11-23 19:43:41 +08:00
+URL: https://campus-drill-sandbox-kqvhf8qsvw2.qoder.zone/
+GET / -> HTTP 200
+GET /assets/index-iWf2-4_J.js -> HTTP 200, 341011 bytes
+Contains /api/d7/review: False
+Public static GET only. No auth, Function request, model send or state mutation.
