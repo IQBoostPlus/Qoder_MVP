@@ -434,9 +434,9 @@ export async function ensureResources(storage, userHash, signal = AbortSignal.ti
   }
 }
 
-async function prepareSession(binding, request, signal) {
+async function prepareSession(binding, request, signal, onResponse) {
   const session = await api('/api/v1/cloud/sessions', {
-    method: 'POST', signal,
+    method: 'POST', signal, onResponse,
     body: {
       agent: { type: 'agent', id: binding.agent_id, version: binding.agent_version },
       environment_id: binding.environment_id,
@@ -448,9 +448,9 @@ async function prepareSession(binding, request, signal) {
   return session.id;
 }
 
-async function sendPrompt(sessionId, prompt, signal) {
-  await api(`/api/v1/cloud/sessions/${encodeURIComponent(sessionId)}/events`, {
-    method: 'POST', signal, body: { events: [{ type: 'user.message', content: [{ type: 'text', text: prompt }] }] },
+async function sendPrompt(sessionId, prompt, signal, onResponse) {
+  return api(`/api/v1/cloud/sessions/${encodeURIComponent(sessionId)}/events`, {
+    method: 'POST', signal, onResponse, body: { events: [{ type: 'user.message', content: [{ type: 'text', text: prompt }] }] },
   });
 }
 
@@ -486,10 +486,12 @@ function bound(ms) {
 export function createD5Service({ db, storage }) {
   if (!db) throw new Error('database_not_configured');
   const ledgerFor = (userHash, runId) => createDatabaseLedger({ db, storage, userHash, runId });
+  const experimentLedger = async (accessDigest) => createDatabaseLedger({ db, storage, accessDigest,
+    userHash: await digest('campus-drill:d5:anonymous:v1:budget'), runId: 'd5-anonymous-experiment-v1' });
 
-  async function generate(userHash, input, includeReports = false) {
+  async function generate(userHash, input, includeReports = false, accessDigest) {
     const request = validateRequest(input);
-    const ledger = ledgerFor(userHash, request.run_id);
+    const ledger = accessDigest ? await experimentLedger(accessDigest) : ledgerFor(userHash, request.run_id);
     const started = performance.now();
     const claim = await ledger.claim(request);
     if (claim === 'existing') return read(ledger, request);
@@ -497,13 +499,18 @@ export function createD5Service({ db, storage }) {
     if (!(await ledger.matches(request))) return { status: 'pending', ...(await ledger.usage()) };
 
     const issues = [];
-    const trace = { app: 'd5', instance: INSTANCE, template: request.template_id, modifiers: request.modifiers, phases: {}, started_at: new Date().toISOString() };
+    const trace = { app: 'd5', instance: INSTANCE, template: request.template_id, modifiers: request.modifiers, phases: {}, started_at: new Date().toISOString(),
+      ...(accessDigest ? { authorization: 'owner_bound_run_key' } : {}) };
     const deadline = bound(MODEL_WAIT_MS);
-    async function finish(result) {
+    async function finish(result, completing) {
       try {
-        const usage = await ledger.usage();
+        const usage = await ledger.usage({ completing });
         const final = { ...result, ...usage, issues, elapsed_ms: Math.round(performance.now() - started) };
         const saved = await ledger.save(final);
+        if (saved && completing) {
+          try { await ledger.markComplete(completing); }
+          catch { trace.completion_marker_pending = true; }
+        }
         const reply = await read(ledger, request);
         if (!saved || reply.status !== 'ready' || JSON.stringify(reply.result) !== JSON.stringify(final)) return reply;
         trace.calls_after = usage.calls;
@@ -519,7 +526,7 @@ export function createD5Service({ db, storage }) {
       deadline.clear();
       return read(ledger, request);
     }
-    const fallback = (reason, provider = null) => finish({ ...fallbackResult(request, reason), provider });
+    const fallback = (reason, provider = null, completing) => finish({ ...fallbackResult(request, reason), provider }, completing);
 
     let binding;
     try {
@@ -529,37 +536,40 @@ export function createD5Service({ db, storage }) {
       trace.environment = await redactId(binding.environment_id);
     } catch (error) {
       trace.binding_error = bindingFailure(error);
+      if (accessDigest && ['unauthorized', 'timeout'].includes(error?.reason)) return fallback(error.reason);
       return fallback(error?.reason === 'not_configured' ? 'not_configured' : 'network');
     }
 
-    for (const slot of ['scenario', 'retry']) {
+    for (const slot of accessDigest ? ['scenario'] : ['scenario', 'retry']) {
       if (deadline.signal.aborted) return fallback('timeout', 'qoder');
       const usageBefore = await ledger.usage();
       if (!(await ledger.reserve(slot))) return followStoredRequest();
       trace.phases[slot] = { reserved_at: new Date().toISOString(), calls_before: usageBefore.calls };
       let session;
       try {
-        session = await prepareSession(binding, request, deadline.signal);
+        session = await prepareSession(binding, request, deadline.signal, (detail) => { trace.phases[slot].session_response = detail; });
         trace.phases[slot].session = await redactId(session);
       } catch (error) {
         trace.phases[slot].failure = { step: 'session_create', ...detailOf(error) };
         return fallback(error?.reason ?? 'network');
       }
+      if (accessDigest && deadline.signal.aborted) return fallback('timeout', 'qoder');
       if (!(await ledger.markSent(slot, session, { instance: INSTANCE, model: binding.model }))) return followStoredRequest();
       trace.phases[slot].sent_at = new Date().toISOString();
       let phase = 'send';
       try {
         const prompt = generationPrompt(request, issues.at(-1));
-        await sendPrompt(session, prompt, deadline.signal);
+        const receipt = await sendPrompt(session, prompt, deadline.signal, (detail) => { trace.phases[slot].send_response = detail; });
+        if (receipt?.accepted === true) trace.phases[slot].accepted = true;
         phase = 'reply';
         const text = await waitReply(session, deadline.signal);
         trace.phases[slot].reply_at = new Date().toISOString();
-        await ledger.markComplete(slot);
+        if (!accessDigest) await ledger.markComplete(slot);
         const candidate = parseCandidate(text, request);
         const bundle = validateBundle(assembleBundle(request, candidate, 'generated'), request, 'generated');
         trace.candidate = candidate;
         const generated = { ...fallbackResult(request, null), bundle, provider: 'qoder', selection: 'generated', scenario_source: 'generated' };
-        if (!includeReports) return finish(generated);
+        if (!includeReports || accessDigest) return finish(generated, accessDigest ? slot : undefined);
         return finish(await generateReports(generated, {
           reserve: (name) => ledger.reserve(name),
           prepare: () => prepareSession(binding, request, deadline.signal),
@@ -581,12 +591,13 @@ export function createD5Service({ db, storage }) {
         if (error instanceof ValidationError) {
           issues.push(error.issue);
           trace.phases[slot].issue = error.issue;
-          if (slot === 'retry') return fallback('invalid_candidate', 'qoder');
+          if (accessDigest || slot === 'retry') return fallback('invalid_candidate', 'qoder', accessDigest ? slot : undefined);
           continue;
         }
         if (error instanceof ProviderError) {
-          if (error.definitive) await ledger.markComplete(slot);
-          return fallback(error.reason === 'not_configured' ? 'not_configured' : error.reason, 'qoder');
+          const completing = phase === 'send' && error.definitive ? slot : undefined;
+          if (!accessDigest && error.definitive) await ledger.markComplete(slot);
+          return fallback(error.reason, 'qoder', accessDigest ? completing : undefined);
         }
         return fallback('network', 'qoder');
       }
@@ -602,40 +613,60 @@ export function createD5Service({ db, storage }) {
     return ready(fallbackResult(request, 'not_configured', 0, 0));
   }
 
-  async function recover(userHash, input) {
+  async function recover(userHash, input, accessDigest) {
     const request = validateRequest(input);
-    const ledger = ledgerFor(userHash, request.run_id);
+    const ledger = accessDigest ? await experimentLedger(accessDigest) : ledgerFor(userHash, request.run_id);
     if (!(await ledger.matches(request))) return { status: 'missing' };
     const stored = await ledger.readResult();
-    if (!stored) return { status: 'pending', ...(await ledger.usage()) };
-    if (stored.result.upstream_state !== 'unknown' || stored.result.provider !== 'qoder' || stored.final) return ready(stored.result);
+    const readCurrent = async () => stored ? ready(stored.result) : { status: 'pending', ...(await ledger.usage()) };
+    if (!stored && !accessDigest) return readCurrent();
+    if (stored && (stored.result.upstream_state !== 'unknown' || stored.result.provider !== 'qoder' || stored.final)) return readCurrent();
     const attempt = await ledger.unresolved();
-    if (!attempt || stored.result.report_source !== 'preset' || attempt.slot === 'reports') return ready(stored.result);
+    if (!attempt || (stored && stored.result.report_source !== 'preset') || attempt.slot === 'reports') return readCurrent();
     let text;
     const deadline = bound(2500);
     try {
       text = await readSession(attempt.session_id, deadline.signal);
     } catch {
       deadline.clear();
-      return ready(stored.result);
+      return readCurrent();
     }
     deadline.clear();
-    if (!text) return ready(stored.result);
-    const issues = [...(stored.result.issues ?? [])];
+    if (!text) return readCurrent();
+    const before = stored?.result ?? { ...fallbackResult(request, 'network'), provider: 'qoder' };
+    const issues = [...(before.issues ?? [])];
     let result;
     const usage = await ledger.usage({ completing: attempt.slot });
     try {
       const candidate = parseCandidate(text, request);
       const bundle = validateBundle(assembleBundle(request, candidate, 'generated'), request, 'generated');
-      result = { ...stored.result, ...usage, bundle, selection: 'generated', scenario_source: 'generated', provider: 'qoder', fallback_reason: null };
+      result = { ...before, ...usage, bundle, selection: 'generated', scenario_source: 'generated', provider: 'qoder', fallback_reason: null };
     } catch (error) {
       if (!(error instanceof ValidationError)) throw error;
       issues.push(error.issue);
-      result = { ...stored.result, ...usage, issues, fallback_reason: 'invalid_candidate' };
+      result = { ...before, ...usage, issues, fallback_reason: 'invalid_candidate' };
     }
     const saved = await ledger.recover(result);
-    if (saved) await ledger.markComplete(attempt.slot);
-    return read(ledger, request);
+    let completed = true;
+    if (saved) {
+      try { await ledger.markComplete(attempt.slot); }
+      catch (error) { if (!accessDigest) throw error; completed = false; }
+    }
+    const reply = await read(ledger, request);
+    return saved && accessDigest ? { ...reply, trace: { authorization: 'owner_bound_run_key',
+      recovered_session: await redactId(attempt.session_id), reply_read: true, candidate_valid: result.selection === 'generated',
+      completion_marker_pending: !completed } } : reply;
+  }
+
+  async function anonymousScenario(request, method, accessDigest) {
+    if (method === 'POST' && !qoderConfigured()) return ready(fallbackResult(request, 'not_configured', 0, 0));
+    try {
+      if (method === 'GET') return await recover(null, request, accessDigest);
+      return await generate(await digest('campus-drill:d5:anonymous:v1:resources'), request, false, accessDigest);
+    } catch {
+      // An interrupted database operation may have committed. Never issue another model message.
+      return ready(fallbackResult(request, 'network', 0, null));
+    }
   }
 
   // Test-only: two concurrent calls race the last slot. The winner performs a
@@ -814,7 +845,7 @@ export function createD5Service({ db, storage }) {
     return { usage: await ledger.usage(), result: await ledger.readResult(), instance: INSTANCE };
   }
 
-  return { generate, recover, disabled, claimLastSlot, interrupt, diag, warm, seed, stats, upstream, bindingStatus, reviewProvider, instance: INSTANCE };
+  return { generate, recover, disabled, anonymousScenario, claimLastSlot, interrupt, diag, warm, seed, stats, upstream, bindingStatus, reviewProvider, instance: INSTANCE };
 }
 
 export { MODEL_WAIT_MS, GENERATION_WAIT_MS };

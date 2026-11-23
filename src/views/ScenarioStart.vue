@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onScopeDispose, ref } from 'vue';
 import { fallbackResult } from '../scenario-generation/bundle';
-import { completeSessionGeneration, readGenerationSession, requestScenario, reserveSessionGeneration } from '../scenario-generation/client';
+import { completeSessionGeneration, nextGenerationRunId, readGenerationSession, requestScenario, reserveSessionGeneration } from '../scenario-generation/client';
 import { SESSION_LIMIT, type FallbackReason, type GenerationRequest, type GenerationResult, type Modifier, type TemplateId } from '../scenario-generation/contracts';
 import { getTemplate, templates } from '../scenario-generation/templates';
 
@@ -42,9 +42,9 @@ function choose(id: TemplateId): void {
   chosen.value = id;
 }
 
-function request(): GenerationRequest {
+function request(runId: string = crypto.randomUUID()): GenerationRequest {
   return {
-    run_id: crypto.randomUUID(), request_id: crypto.randomUUID(), template_id: template.value.id,
+    run_id: runId, request_id: crypto.randomUUID(), template_id: template.value.id,
     modifiers: [...template.value.modifiers],
   };
 }
@@ -56,16 +56,19 @@ function startPreset(): void {
 
 async function generate(recover: boolean): Promise<void> {
   if (inFlight) return;
-  const input = recover ? pending.value : request();
-  if (!input) return;
-  if (!recover) {
-    try {
+  let input: GenerationRequest;
+  try {
+    if (recover) {
+      if (!pending.value) return;
+      input = pending.value;
+    } else {
+      input = request(nextGenerationRunId(sessionStorage));
       const reserved = reserveSessionGeneration(sessionStorage, input);
       if (!reserved) return;
       count.value = reserved.count;
       pending.value = reserved.pending;
-    } catch { storageProblem.value = true; return; }
-  }
+    }
+  } catch { storageProblem.value = true; return; }
   const controller = new AbortController();
   inFlight = controller;
   phase.value = recover ? '查询原生成请求' : '正在生成剧本';

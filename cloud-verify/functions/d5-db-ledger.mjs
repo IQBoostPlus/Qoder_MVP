@@ -12,14 +12,17 @@ function canonical(value) {
   return JSON.stringify(value);
 }
 
-export function createDatabaseLedger({ db, storage, userHash, runId, now = () => new Date().toISOString(), legacy }) {
+export function createDatabaseLedger({ db, storage, userHash, runId, accessDigest, now = () => new Date().toISOString(), legacy }) {
   if (!db) throw new Error('database_not_configured');
   if (!storage) throw new Error('storage_not_configured');
   if (typeof userHash !== 'string' || !/^[0-9a-f]{64}$/.test(userHash)) throw new Error('invalid_user_hash');
   if (typeof runId !== 'string' || !/^[\w-]{12,80}$/.test(runId)) throw new Error('invalid_run_id');
+  if (accessDigest !== undefined && !/^[0-9a-f]{64}$/.test(accessDigest)) throw new Error('invalid_access_digest');
 
   const base = { user_hash: userHash, run_id: runId };
   const legacyLedger = legacy ?? createStorageLedger({ storage, userHash, runId, now });
+  // The experiment's physical root stays fixed across deployments and configuration changes.
+  const storedRequest = (request) => canonical(accessDigest ? { request, access_digest: accessDigest } : request);
 
   async function rows(table, columns) {
     const result = await db.from(table).select(columns).eq('user_hash', userHash).eq('run_id', runId).limit(200);
@@ -30,11 +33,12 @@ export function createDatabaseLedger({ db, storage, userHash, runId, now = () =>
   async function insertOnce(table, row, exists) {
     try {
       const result = await db.from(table).insert({ ...base, created_at: now(), ...row });
-      if (!result?.error) return true;
+      if ((result || !accessDigest) && !result?.error) return true;
     } catch (error) {
       if (await exists()) return false;
       throw error;
     }
+    if (accessDigest && !await exists()) throw new Error('database_write_failed');
     return false;
   }
 
@@ -48,11 +52,11 @@ export function createDatabaseLedger({ db, storage, userHash, runId, now = () =>
   }
 
   async function readLegacyRequest() {
-    return legacyLedger.readRequest();
+    return accessDigest ? null : legacyLedger.readRequest();
   }
 
   async function claim(request) {
-    const wanted = canonical(request);
+    const wanted = storedRequest(request);
     const legacyRequest = await readLegacyRequest();
     if (legacyRequest) return canonical(legacyRequest) === wanted ? 'existing' : 'conflict';
     const created = await insertOnce(RUNS, { request_json: wanted }, async () => (await readRun()) !== null);
@@ -63,7 +67,7 @@ export function createDatabaseLedger({ db, storage, userHash, runId, now = () =>
   }
 
   async function matches(request) {
-    const wanted = canonical(request);
+    const wanted = storedRequest(request);
     const run = await readRun();
     if (run) return run.request_json === wanted;
     const legacyRequest = await readLegacyRequest();
@@ -80,7 +84,7 @@ export function createDatabaseLedger({ db, storage, userHash, runId, now = () =>
   }
 
   async function usage({ completing } = {}) {
-    if (!(await runExists())) return legacyLedger.usage({ completing });
+    if (!accessDigest && !(await runExists())) return legacyLedger.usage({ completing });
     const bySlot = summarize(await rows(SLOT_ROWS, 'slot,event,session_id'));
     const states = SLOTS.map((slot) => {
       const events = bySlot.get(slot) ?? {};
@@ -95,7 +99,7 @@ export function createDatabaseLedger({ db, storage, userHash, runId, now = () =>
   }
 
   async function unresolved() {
-    if (!(await runExists())) return legacyLedger.unresolved();
+    if (!accessDigest && !(await runExists())) return legacyLedger.unresolved();
     const bySlot = summarize(await rows(SLOT_ROWS, 'slot,event,session_id,created_at,meta'));
     for (const slot of [...SLOTS].reverse()) {
       const events = bySlot.get(slot) ?? {};
@@ -134,7 +138,7 @@ export function createDatabaseLedger({ db, storage, userHash, runId, now = () =>
     if (final) return { result: JSON.parse(final.payload), final: true };
     const result = stored.find((row) => row.kind === 'result');
     if (result) return { result: JSON.parse(result.payload), final: false };
-    return legacyLedger.readResult();
+    return accessDigest ? null : legacyLedger.readResult();
   }
 
   async function save(result) {

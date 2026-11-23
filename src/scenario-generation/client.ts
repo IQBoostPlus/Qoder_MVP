@@ -1,10 +1,17 @@
 import { validateReportBatch } from './reports';
 import { assembleBundle, fallbackResult, record, validateBundle, validateCandidate, validateRequest } from './bundle';
 import { GENERATION_WAIT_MS, SESSION_LIMIT, type FallbackReason, type GenerationRequest, type GenerationResult, type Issue } from './contracts';
+import { runAccessKey } from '../run-store/cloud';
 
 const sessionKey = 'campus-drill-generation-v1';
+const designatedRunKey = 'campus-drill-generation-test-run-v1';
 const reasons: readonly FallbackReason[] = ['not_configured', 'unauthorized', 'network', 'timeout', 'invalid_candidate', 'budget', 'conflict'];
 type SessionState = { count: number; pending: GenerationRequest | null };
+
+export function nextGenerationRunId(storage: Storage): string {
+  const designated = storage.getItem(designatedRunKey);
+  return designated && /^[\w-]{12,80}$/.test(designated) ? designated : crypto.randomUUID();
+}
 
 export function readGenerationSession(storage: Storage): SessionState {
   const raw = storage.getItem(sessionKey);
@@ -85,11 +92,13 @@ export async function requestScenario(
   const active = AbortSignal.any([signal, deadline]);
   const query = new URLSearchParams({ run_id: request.run_id, request_id: request.request_id, template_id: request.template_id });
   for (const modifier of request.modifiers) query.append('modifiers', modifier);
-  const url = (import.meta.env?.VITE_D5_SCENARIO_PATH || '/api/d5/scenario') as string;
-  const read = () => fetchFn(url + '?' + query.toString(), { signal: active, cache: 'no-store' });
+  const configured = import.meta.env?.VITE_D5_SCENARIO_PATH;
+  const url = typeof configured === 'string' && /^\/(?!\/)[\w/-]+$/.test(configured) ? configured : '/api/d5/scenario';
   try {
+    const headers: Record<string, string> = typeof localStorage === 'undefined' ? {} : { 'X-Run-Key': runAccessKey(request.run_id) };
+    const read = () => fetchFn(url + '?' + query.toString(), { signal: active, cache: 'no-store', redirect: 'error', headers });
     let response = recover ? await read() : await fetchFn(url, {
-      method: 'POST', signal: active, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request),
+      method: 'POST', signal: active, redirect: 'error', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(request),
     });
     while (response.status === 202) {
       await response.body?.cancel();

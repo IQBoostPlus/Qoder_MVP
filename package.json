@@ -20,6 +20,7 @@
     "build:sites:d6": "node scripts/build-d6-sites.mjs",
     "check:d6": "npm run check:d5 && tsx scripts/validate-d6.ts",
     "check:d7": "npm run check:d6 && tsx scripts/validate-d7.ts",
+    "check:fix:v1": "tsx scripts/validate-fix-v1.mjs",
     "scenario:server": "tsx server/index.ts"
   },
   "devDependencies": {
