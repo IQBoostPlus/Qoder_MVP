@@ -28,7 +28,7 @@ class BackendError extends Error {
   constructor(code, status) { super(code); this.status = status; }
 }
 
-function fixture({ mode = 'valid', failInsert } = {}) {
+function fixture({ mode = 'valid', failInsert, appUrl = `${base}/functions/v1/app` } = {}) {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec(ddl);
   const otherTables = new Map();
@@ -99,7 +99,7 @@ function fixture({ mode = 'valid', failInsert } = {}) {
       throw new BackendError('identity_required', 401);
     } });
     return async (path, { method = 'GET', payload, key = runKey, headers = {} } = {}) => {
-      const request = new Request(`${base}/functions/v1/app${path}`, { method,
+      const request = new Request(appUrl + path, { method,
         ...(payload && { body: JSON.stringify(payload) }),
         headers: { 'Content-Type': 'application/json', ...(key && { 'X-Run-Key': key }), ...headers },
       });
@@ -154,6 +154,76 @@ const auth = { 'x-test-identity': 'signed-in' };
 const lookup = (request = input) => scenario + '?' + exactQuery(request);
 const post = (handle, payload = input, extra = {}) => handle(scenario, { method: 'POST', payload, ...extra });
 const result = async (promise) => (await (await promise).json()).result;
+
+// Sites may give the Function an internal URL while the browser sends the public origin.
+{
+  const appUrl = 'http://127.0.0.1:8787/app';
+  const internalOrigin = new URL(appUrl + scenario).origin;
+  const publicOrigin = 'https://campus-drill-anon-test-kqvhf8qsvw2.qoder.zone';
+  const originSetting = 'D5_ANON_EXPERIMENT_PUBLIC_ORIGIN';
+  assert.notEqual(internalOrigin, publicOrigin);
+  const sameOrigin = { origin: publicOrigin, 'sec-fetch-site': 'same-origin' };
+
+  for (const fetchSite of ['same-origin', 'none', undefined]) {
+    const test = fixture({ appUrl });
+    try {
+      test.flags.set(originSetting, 'https://CAMPUS-DRILL-ANON-TEST-KQVHF8QSVW2.QODER.ZONE:443/');
+      const headers = { origin: publicOrigin, ...(fetchSite !== undefined && { 'sec-fetch-site': fetchSite }) };
+      const handle = test.instance();
+      const response = await post(handle, input, { headers });
+      const body = await response.json();
+      assert.equal(response.status, 200, `hosted public POST (${fetchSite ?? 'no Fetch Metadata'}): HTTP ${response.status} ${body.code ?? body.status}`);
+      assert.equal(body.result.selection, 'generated');
+      assert.equal(body.result.calls, 1);
+      assert.deepEqual(await result(handle(lookup(), { headers: { 'sec-fetch-site': 'same-origin' } })), body.result);
+      assert.equal(test.calls.sessions, 1);
+      assert.equal(test.calls.messages, 1);
+    } finally { test.close(); }
+  }
+  console.log('FIX-v2 hosted POST: public origin with internal responder URL -> 200/generated, one synthetic message per fixture; none, absent Fetch Metadata and GET without Origin pass.');
+
+  const blocked = fixture({ appUrl });
+  try {
+    blocked.flags.set(originSetting, publicOrigin);
+    const handle = blocked.instance();
+    const response = await post(handle, input, { key: '0'.repeat(64), headers: sameOrigin });
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), { code: 'not_found' });
+    const outside = await post(handle, input, { key: '0'.repeat(64), headers: { origin: 'https://elsewhere.invalid' } });
+    assert.equal(outside.status, 415);
+    assert.deepEqual(await outside.json(), { code: 'same_origin_required' });
+    for (const headers of [
+      ...['https://elsewhere.invalid', 'https://other.qoder.zone', internalOrigin].map(origin => ({ ...sameOrigin, origin })),
+      ...['cross-site', 'same-site'].map(site => ({ ...sameOrigin, 'sec-fetch-site': site })),
+      { ...sameOrigin, origin: 'https://elsewhere.invalid', host: 'elsewhere.invalid', 'x-forwarded-host': 'elsewhere.invalid' },
+      { ...sameOrigin, origin: publicOrigin.toUpperCase() },
+    ]) {
+      const rejected = await post(handle, input, { headers });
+      assert.equal(rejected.status, 415);
+      assert.deepEqual(await rejected.json(), { code: 'same_origin_required' });
+    }
+    assert.deepEqual(blocked.calls, { upstream: 0, sessions: 0, messages: 0, reads: 0 });
+    for (const table of ['runs', 'slots', 'results']) assert.equal(blocked.ledgerRows('d5_generation_' + table).length, 0);
+  } finally { blocked.close(); }
+  console.log('FIX-v2 hosted negatives: zero key -> business 404; other origins and cross-/same-site -> 415; zero gateway calls and ledger rows.');
+
+  for (const declared of [undefined, '', 'not a URL', 'http://127.0.0.1:8787', 'https://[bad]', 'https://.', 'https://example..com',
+    `${publicOrigin}:99999`, `${publicOrigin},https://elsewhere.invalid`, 'https://*.qoder.zone',
+    'https://user:pass@campus-drill-anon-test-kqvhf8qsvw2.qoder.zone', `${publicOrigin}/subpath`, `${publicOrigin}/.`,
+    `${publicOrigin}?`, `${publicOrigin}#`, `${publicOrigin}\n`]) {
+    const test = fixture({ appUrl });
+    try {
+      if (declared !== undefined) test.flags.set(originSetting, declared);
+      const handle = test.instance();
+      assert.equal((await post(handle, input, { headers: sameOrigin })).status, 415, JSON.stringify(declared));
+      const accepted = await post(handle, input, { headers: { ...sameOrigin, origin: internalOrigin } });
+      assert.equal(accepted.status, 200, JSON.stringify(declared));
+      assert.equal((await accepted.json()).result.selection, 'generated');
+      assert.equal(test.calls.messages, 1);
+    } finally { test.close(); }
+  }
+  console.log('FIX-v2 missing or invalid declaration: public POST remains 415 and internal-origin POST reaches generation.');
+}
 
 {
   const test = fixture();

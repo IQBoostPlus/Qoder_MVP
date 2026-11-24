@@ -77,3 +77,60 @@ console.info({ http: response.status, status: body.status, selection, provider, 
 - [生成服务](../cloud-verify/functions/d5-service.mjs) 用独立的应用级资源命名空间准备 Agent／Environment。实验数据库根固定归站点数据库，`request_json` 绑定原请求与密钥摘要。只有 `scenario` 能占槽；唯一 `sent` 行成功后才调用上游。多个实例、重启、替换请求、修改指定配置都复用该根。历史 Storage 只用于旧路径和实验记录凭证，实验额度不回退到 Storage。发送后落结果失败仍可查询原 Session。名额不得重新释放。
 - 学员保存的 `StoredRun.run_id` 是新 UUID，`origin.request.run_id` 保留生成根的原业务 ID，`origin.request.request_id` 保留关联。本轮用它说明原账本归属。后续接整批上报、点评和共享重试时，需要根据可信快照及本次绑定映射回同一服务端账本。当前 D7 仍按已有平台身份保护。
 - 阶段一公网通过后再验三件事。先开放访客自助轮次并加比赛期整站额度，再接 D6 整批上报与实际来源，最后补提交后的后台保存及 D7 复盘，8 秒保留摘要。每步独立给证据。
+
+## 6. FIX-v2 在原测试站复验
+
+沿用原实验 action `253fe21f…` 的站点、匿名标签页、轮次绑定、模型凭证及固定台账根 `d5-anonymous-experiment-v1`。发布前先核对三张台账表。若已有记录，只查原请求状态。确认三表为零后，只更新 FIX-v2 Function 并声明以下配置值，保留既有静态入口与实验配置。记录新版发布编号和原 action 的对应关系，确认实际域名命中新版，复核三表行数。
+
+```text
+D5_ANON_EXPERIMENT_PUBLIC_ORIGIN=https://campus-drill-anon-test-kqvhf8qsvw2.qoder.zone
+```
+
+### P1 同源错钥 POST
+
+在原匿名页面执行以下片段。浏览器会自然附上 Origin 和 Fetch Metadata。片段只读取指定轮次编号，固定使用 64 个零作为错钥。
+
+```js
+await (async () => {
+  if (location.origin !== 'https://campus-drill-anon-test-kqvhf8qsvw2.qoder.zone') throw new Error('请回到原实验站');
+  const runId = sessionStorage.getItem('campus-drill-generation-test-run-v1');
+  if (!/^[\w-]{12,80}$/.test(runId ?? '')) throw new Error('原标签页未保存指定轮次');
+  const response = await fetch('/functions/v1/app/api/d5/scenario', {
+    method: 'POST', redirect: 'error', cache: 'no-store',
+    headers: { 'Content-Type': 'application/json', 'X-Run-Key': '0'.repeat(64) },
+    body: JSON.stringify({ run_id: runId, request_id: crypto.randomUUID(), template_id: 'TPL-NIGHT-DORM-01', modifiers: ['night', 'heavy_rain'] }),
+  });
+  const data = await response.json().catch(() => null);
+  console.info({ http: response.status, code: data?.code ?? data?.error?.code ?? null });
+})();
+```
+
+预期从原来的 `415 same_origin_required` 变为业务 `404 not_found`，固定根三表仍是 0 行。取证只记响应、Origin 与 `Sec-Fetch-Site`。若仍是 415，停止真实点击，先查实际版本和配置是否生效。只有仍无法定位时，临时记录 Function 侧两个比较布尔值（是否匹配配置、是否匹配内部 URL origin），核对后移除。
+
+### P2 外源错钥负例
+
+在 PowerShell 7 中把占位符换成原指定轮次编号。此探针只送固定错钥与外站 Origin。
+
+```powershell
+$runId = '<原指定轮次 ID>'
+if ($runId -notmatch '^[\w-]{12,80}$') { throw '请填原轮次编号' }
+$probe = @{
+  run_id = $runId
+  request_id = [guid]::NewGuid().ToString()
+  template_id = 'TPL-NIGHT-DORM-01'
+  modifiers = @('night', 'heavy_rain')
+} | ConvertTo-Json -Compress
+$response = Invoke-WebRequest -Uri 'https://campus-drill-anon-test-kqvhf8qsvw2.qoder.zone/functions/v1/app/api/d5/scenario' `
+  -Method Post -ContentType 'application/json' -Body $probe -MaximumRedirection 0 -SkipHttpErrorCheck `
+  -Headers @{ Origin = 'https://outside.invalid'; 'X-Run-Key' = ('0' * 64) }
+$data = try { $response.Content | ConvertFrom-Json -ErrorAction Stop } catch { $null }
+[pscustomobject]@{ http = [int]$response.StatusCode; code = ($data.code ?? $data.error.code) }
+```
+
+预期业务 `415 same_origin_required`，固定根三表仍为零。若平台返回 `403 BOT_DETECTED`，记「平台先拦截，公网负例未观测」，保留本地外源负例作为应用证据。若到达业务层却返回 404 或成功，暂停实发并检查校验。
+
+### P3 原轮只读查询与唯一实发
+
+1. 使用 §3 的同源 GET 方法，在原窗口带原轮密钥查询。若有原失败请求，沿用它的编号、模板和修饰项。若无请求可恢复且台账记录为零，可仅为 GET 指定一个未占槽的查询编号。预期业务 `404` 且响应 `status=missing`，固定根三表为零。不要把真实密钥放进 URL、截图、HAR 或控制台输出。
+2. P1 与 P3 符合预期、P2 已按实际结果注明且无业务异常后，在原页面点击一次「请求 AI 剧本」。预期「AI 剧本 · 预置上报」。超时、断流、无效候选或 `sent` 已出现后，用原生成请求的参数只读恢复。按 §4 重新发布关闭版，对比台账确认关闭后无新增发送。
+3. 分别记录同源与生成。前者需要旧 415、新业务 404、P2 观察结论、P3 和零写入。后者另需上游受理或助手响应、合法候选挂载、`generated/qoder/calls=1`、按原请求读回一致，且台账仅一条 `sent`。按各自的时间、版本和执行人把真实结果追加到 B 原凭证 §B5 后。也可从 [FIX-v2 A 轨记录](qoder-evidence/FIX-2026-11-24-v2-hosted-origin.md) 回到本操作单。

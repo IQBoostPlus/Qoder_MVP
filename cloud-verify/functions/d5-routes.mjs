@@ -122,7 +122,14 @@ export function createD5Routes({ db, storage, BackendError }) {
       if (experiment && path === '/api/d5/scenario' && (method === 'POST' || method === 'GET')) {
         const origin = request.headers.get('origin');
         const fetchSite = request.headers.get('sec-fetch-site');
-        if (origin && origin !== url.origin || fetchSite && !['none', 'same-origin'].includes(fetchSite)) fail('same_origin_required', 415);
+        const publicOrigin = envValue('D5_ANON_EXPERIMENT_PUBLIC_ORIGIN') ?? '';
+        let expectedOrigin = url.origin;
+        // Sites may forward to an internal URL. Only the deployment can override this reference.
+        const originSyntax = /^https:\/\/(?:[a-z\d](?:[a-z\d-]*[a-z\d])?(?:\.[a-z\d](?:[a-z\d-]*[a-z\d])?)*\.?|\[[a-f\d:.]+\])(?::\d+)?\/?$/i;
+        if (publicOrigin === publicOrigin.trim() && originSyntax.test(publicOrigin)) {
+          try { expectedOrigin = new URL(publicOrigin).origin; } catch { /* keep the original reference */ }
+        }
+        if (origin && origin !== expectedOrigin || fetchSite && !['none', 'same-origin'].includes(fetchSite)) fail('same_origin_required', 415);
         const input = validateRequest(method === 'POST' ? await readBody(request) : query(url));
         const binding = /^([\w-]{12,80}):([0-9a-f]{64})$/.exec(envValue('D5_ANON_EXPERIMENT_BINDING') ?? '');
         if (!binding) return json({ status: 'ready', result: fallbackResult(input, 'not_configured', 0, 0) });
