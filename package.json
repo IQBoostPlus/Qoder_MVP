@@ -21,6 +21,7 @@
     "check:d6": "npm run check:d5 && tsx scripts/validate-d6.ts",
     "check:d7": "npm run check:d6 && tsx scripts/validate-d7.ts",
     "check:fix:v1": "tsx scripts/validate-fix-v1.mjs",
+    "check:fix:v3": "node scripts/validate-fix-v3.mjs",
     "scenario:server": "tsx server/index.ts"
   },
   "devDependencies": {

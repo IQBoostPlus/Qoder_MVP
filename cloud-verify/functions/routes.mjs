@@ -1,6 +1,6 @@
 import { createCloudAgentsClient } from './cloud-agents.mjs';
 import { createD2Routes } from './d2-verify.mjs';
-import { anonymousExperimentEnabled, createD5Routes, envEnabled } from './d5-routes.mjs';
+import { agentDiagnosticEnabled, agentDiagnosticPath, anonymousExperimentEnabled, createD5Routes, envEnabled } from './d5-routes.mjs';
 import { createRunRoute } from './d6-shared.mjs';
 
 const CLOUD_API_ORIGIN = 'https://api.qoder.com.cn';
@@ -10,7 +10,7 @@ export function application({ db, storage, requireUser, BackendError }) {
   const handleD2 = createD2Routes({ db, storage, BackendError });
   const handleD5 = createD5Routes({ db, storage, BackendError });
   const handleD6 = createRunRoute(db, () => envEnabled('D6_ENABLE_RUN_SYNC'));
-  const agentTestsEnabled = () => !anonymousExperimentEnabled() && envEnabled('D5_ENABLE_QODER') && envEnabled('D5_ENABLE_TEST_ROUTES');
+  const agentTestsEnabled = () => !anonymousExperimentEnabled() && !agentDiagnosticEnabled() && envEnabled('D5_ENABLE_QODER') && envEnabled('D5_ENABLE_TEST_ROUTES');
   const fail = (code, status) => {
     throw new BackendError(code, status);
   };
@@ -124,7 +124,8 @@ export function application({ db, storage, requireUser, BackendError }) {
     }
 
     if (path === '/api/d6/runs') return handleD6(request);
-    if (anonymousExperimentEnabled() && path === '/api/d5/scenario' && ['GET', 'POST'].includes(request.method)) {
+    if (anonymousExperimentEnabled() && (path === '/api/d5/scenario' && ['GET', 'POST'].includes(request.method) ||
+      agentDiagnosticEnabled() && path === agentDiagnosticPath && request.method === 'POST')) {
       return handleD5(ctx, path, null);
     }
     const user = await requireUser(ctx);

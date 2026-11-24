@@ -13,6 +13,10 @@ const ORIGIN = 'https://api.qoder.com.cn';
 const INSTANCE = crypto.randomUUID();
 const encoder = new TextEncoder();
 const MODEL_WAIT_MS = 14_500;
+const ANONYMOUS_RESOURCE_SCOPE = 'campus-drill:d5:anonymous:v1:resources';
+const DIAGNOSTIC_BODY_LIMIT = 4096;
+const DIAGNOSTIC_ID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+const activeAgentDiagnostics = new Set();
 
 export class ProviderError extends Error {
   constructor(reason, definitive = false, detail = {}) {
@@ -43,6 +47,74 @@ function detailOf(error) {
   };
 }
 
+// Error values are upstream-controlled. Keep symbolic fields and only retain
+// free-text clauses made entirely of known diagnostic terms.
+const messageWords = new Set([
+  'a accepts access accessible account agent allow allowed already an and api available be cannot configuration conflict',
+  'create current denied deprecated does empty enabled error exist exists expected failed field for format found has have id in',
+  'invalid is key length match maximum minimum missing model must name no not of one only or parameter permission permitted',
+  'provide provided rejected request required service specified string supported system the this to too type unknown',
+  'unsupported use valid validation value version was with your',
+].join(' ').split(' '));
+
+function safeErrorFields(envelope, requestValues) {
+  const error = envelope?.error;
+  const fields = {};
+  const field_status = {};
+  const exactValues = requestValues.map((value) => value.toLowerCase());
+  const safeSymbol = (value) => /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/i.test(value) && value.length <= 64 &&
+    !/^(?:sk|pat|bearer|ghp|qoder_pat|token|secret|authorization|cookie)[_-]|[0-9a-f]{16}|[a-z0-9]{24}/i.test(value) &&
+    !exactValues.some((part) => part.length > 3 && value.toLowerCase().includes(part));
+  for (const field of ['type', 'code', 'param', 'message']) {
+    if (!error || !Object.hasOwn(error, field)) { field_status[field] = 'absent'; continue; }
+    const value = error[field];
+    let safe;
+    if (field === 'message' && typeof value === 'string') {
+      safe = value.split(/\r?\n|(?<=[.!?]) +/).map((clause) => clause.trim()).filter((clause) =>
+        /^[a-z .,!?:-]+$/i.test(clause) && clause.match(/[a-z]+/gi)?.every((word) => messageWords.has(word.toLowerCase()) &&
+          !exactValues.includes(word.toLowerCase())) && !exactValues.some((part) => part.length > 3 && clause.toLowerCase().includes(part)),
+      ).join(' ').slice(0, 200) || undefined;
+    } else if (field === 'code' && Number.isSafeInteger(value) && Math.abs(value) <= 99999999) safe = value;
+    else if (typeof value === 'string' && field !== 'message' && safeSymbol(value)) safe = value;
+    field_status[field] = safe === undefined ? 'omitted' : 'retained';
+    if (safe !== undefined) fields[field] = safe;
+  }
+  return { body_status: Object.values(field_status).every((status) => status === 'absent') ? 'fields_missing' : 'parsed', error: fields, field_status };
+}
+
+async function readAgentError(response, signal, requestValues) {
+  const tooLarge = { body_status: 'limit_reached' };
+  if (Number(response.headers.get('content-length')) > DIAGNOSTIC_BODY_LIMIT) {
+    void response.body?.cancel().catch(() => {});
+    return tooLarge;
+  }
+  if (!response.body) return { body_status: 'empty' };
+  let reader;
+  try { reader = response.body.getReader({ mode: 'byob' }); }
+  catch { void response.body.cancel().catch(() => {}); return { body_status: 'byte_stream_unavailable' }; }
+  const bytes = new Uint8Array(DIAGNOSTIC_BODY_LIMIT);
+  let offset = 0;
+  let onAbort;
+  const aborted = new Promise((_, reject) => { onAbort = () => reject(signal.reason); });
+  signal.addEventListener('abort', onAbort, { once: true });
+  try {
+    signal.throwIfAborted();
+    while (offset < bytes.length) {
+      const { done, value } = await Promise.race([reader.read(new Uint8Array(bytes.length - offset)), aborted]);
+      if (value?.length) { bytes.set(value, offset); offset += value.length; }
+      if (done) break;
+    }
+  } catch { return { body_status: signal.aborted ? 'read_timeout' : 'read_failed' }; }
+  finally {
+    signal.removeEventListener('abort', onAbort);
+    void reader.cancel().catch(() => {});
+  }
+  if (offset === bytes.length) return tooLarge;
+  if (!offset) return { body_status: 'empty' };
+  try { return safeErrorFields(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, offset))), requestValues); }
+  catch { return { body_status: 'non_json' }; }
+}
+
 function token() {
   let value;
   try { value = globalThis.Deno?.env.get('QODER_PAT'); } catch { throw new ProviderError('not_configured', true); }
@@ -63,7 +135,7 @@ export async function redactId(id) {
   return typeof id === 'string' ? { prefix: id.slice(0, 16), fingerprint: await digest(id) } : null;
 }
 
-async function api(path, { method = 'GET', body, signal, idempotencyKey, onResponse } = {}) {
+async function api(path, { method = 'GET', body, signal, idempotencyKey, onResponse, captureAgent400 = false } = {}) {
   if (!/^\/api\/v1\/cloud\/(agents|environments|sessions|models)(\/[A-Za-z0-9_-]+)*(\?[A-Za-z0-9_%=&.-]*)?$/.test(path)) {
     throw new ProviderError('network', true, { stage: 'validation' });
   }
@@ -86,12 +158,16 @@ async function api(path, { method = 'GET', body, signal, idempotencyKey, onRespo
     throw new ProviderError(signal?.aborted ? 'timeout' : 'network', false, { stage: 'transport' });
   }
   const detail = responseDetail(response);
+  if (captureAgent400 && !DIAGNOSTIC_ID.test(detail.request_id ?? '')) delete detail.request_id;
   onResponse?.(detail);
   if (!response.ok) {
-    void response.body?.cancel().catch(() => {});
-    throw new ProviderError(response.status === 401 || response.status === 403 ? 'unauthorized' : 'network',
+    const error = new ProviderError(response.status === 401 || response.status === 403 ? 'unauthorized' : 'network',
       response.status >= 400 && response.status < 500 && response.status !== 408,
       { stage: 'http', status: response.status, request_id: detail.request_id });
+    if (captureAgent400 && method === 'POST' && path === '/api/v1/cloud/agents' && response.status === 400) {
+      error.agent400 = await readAgentError(response, signal, [bearer, idempotencyKey, ...Object.values(body)]);
+    } else void response.body?.cancel().catch(() => {});
+    throw error;
   }
   try {
     return await response.json();
@@ -293,7 +369,7 @@ async function prepareEnvironment(storage, userHash, previous, signal, mark) {
   }
 }
 
-export async function ensureResources(storage, userHash, signal = AbortSignal.timeout(MODEL_WAIT_MS)) {
+export async function ensureResources(storage, userHash, signal = AbortSignal.timeout(MODEL_WAIT_MS), { agentOnly = false } = {}) {
   const path = BINDING_PATH(userHash);
   const write = async (value) => {
     try {
@@ -303,6 +379,12 @@ export async function ensureResources(storage, userHash, signal = AbortSignal.ti
     }
   };
   let binding = await readBinding(storage, path);
+  const validAgent = (value) => value?.revision === BINDING_REVISION && typeof value.model === 'string' && Boolean(value.model) &&
+    typeof value.agent_id === 'string' && /^agent_[A-Za-z0-9_-]+$/.test(value.agent_id) && Number.isInteger(value.agent_version);
+  if (agentOnly && binding?.agent_id) {
+    if (validAgent(binding)) return { status: 'reused' };
+    throw storageFailure('binding_read');
+  }
   const steps = { ...(binding?.steps ?? {}) };
   let failedStep = 'unknown';
   const mark = (name, status, detail = {}) => {
@@ -321,7 +403,7 @@ export async function ensureResources(storage, userHash, signal = AbortSignal.ti
 
   mark('binding_read', 'ok', { state: binding?.state ?? null, revision: binding?.revision ?? null });
   if (binding?.state === 'ready' && binding.revision === BINDING_REVISION) {
-    if (binding.model && binding.agent_id && Number.isInteger(binding.agent_version) && binding.environment_id) return binding;
+    if (binding.model && binding.agent_id && Number.isInteger(binding.agent_version) && binding.environment_id && !agentOnly) return binding;
     throw storageFailure('binding_read');
   }
   if (binding?.state === 'creating' && Date.now() - Date.parse(binding.updated_at ?? binding.created_at) < MODEL_WAIT_MS) {
@@ -329,7 +411,8 @@ export async function ensureResources(storage, userHash, signal = AbortSignal.ti
   }
 
   const previous = binding;
-  const resumable = previous?.state === 'unknown' || (previous?.state === 'creating' && (previous.steps || previous.agent_id));
+  const resumable = previous?.state === 'unknown' || (previous?.state === 'agent_ready' && validAgent(previous)) ||
+    (previous?.state === 'creating' && (previous.steps || previous.agent_id));
   if (previous && !resumable && previous.state !== 'ready') throw new ProviderError('network', false);
 
   let model = resumable ? previous.model ?? null : null;
@@ -362,12 +445,14 @@ export async function ensureResources(storage, userHash, signal = AbortSignal.ti
       await storage.upload(path, encoder.encode(JSON.stringify({ ...binding, steps })), { contentType: 'application/json; charset=utf-8', upsert: false });
     } catch (error) {
       const existing = await readBinding(storage, path);
-      if (existing?.state === 'ready' && existing.revision === BINDING_REVISION) return existing;
+      if (agentOnly && validAgent(existing)) return { status: 'reused' };
+      if (!agentOnly && existing?.state === 'ready' && existing.revision === BINDING_REVISION) return existing;
       if (!existing) throw storageFailure('binding_write', error);
       throw new ProviderError('network', false, { stage: 'binding_claim' });
     }
   }
 
+  let agentReceipt;
   try {
     if (!agentId) {
       if (!model) {
@@ -390,7 +475,8 @@ export async function ensureResources(storage, userHash, signal = AbortSignal.ti
       let detail;
       try {
         agent = await api('/api/v1/cloud/agents', {
-          method: 'POST', signal, onResponse: (result) => { detail = result; },
+          method: 'POST', signal, captureAgent400: agentOnly,
+          onResponse: (result) => { detail = result; agentReceipt = result; },
           idempotencyKey: `d5-agent-${userHash.slice(0, 16)}-r${BINDING_REVISION}`,
           body: {
             name: 'D5 scenario generator', model,
@@ -409,8 +495,13 @@ export async function ensureResources(storage, userHash, signal = AbortSignal.ti
       agentId = agent.id;
       agentVersion = agent.version;
       binding = { ...binding, model, agent_id: agentId, agent_version: agentVersion };
+      if (agentOnly) {
+        binding = await save({ ...binding, state: 'agent_ready' });
+        return { status: 'agent_ready', ...agentReceipt };
+      }
       binding = await save(binding);
     }
+    if (agentOnly) return { status: 'reused' };
     let environmentId = binding.environment_id;
     if (environmentId) {
       mark('environment', 'reused');
@@ -425,6 +516,7 @@ export async function ensureResources(storage, userHash, signal = AbortSignal.ti
     if (failedStep === 'unknown') mark('environment', 'error', detailOf(error));
     error.failed_step = failedStep;
     error.steps = { ...steps };
+    if (agentOnly && agentReceipt) error.agentReceipt = agentReceipt;
     try {
       binding = await save({ ...binding, state: 'unknown', ...detailOf(error), failed_step: failedStep });
     } catch {
@@ -432,6 +524,41 @@ export async function ensureResources(storage, userHash, signal = AbortSignal.ti
     }
     throw error;
   }
+}
+
+export async function diagnoseAnonymousAgent(storage, diagnosticId, signal = AbortSignal.timeout(MODEL_WAIT_MS)) {
+  if (!DIAGNOSTIC_ID.test(diagnosticId)) return { status: 'not_configured' };
+  if (activeAgentDiagnostics.has(diagnosticId)) return { status: 'already_started' };
+  activeAgentDiagnostics.add(diagnosticId);
+  try { return await runAgentDiagnostic(storage, diagnosticId, signal); }
+  finally { activeAgentDiagnostics.delete(diagnosticId); }
+}
+
+async function runAgentDiagnostic(storage, diagnosticId, signal) {
+  const scope = await digest(ANONYMOUS_RESOURCE_SCOPE);
+  const root = `d5-generation/${scope}/agent-diagnostics/${diagnosticId}`;
+  const write = (name, value) => storage.upload(`${root}/${name}.json`, encoder.encode(JSON.stringify(value)),
+    { contentType: 'application/json; charset=utf-8', upsert: false });
+  const claimed = await readBindingResult(storage, `${root}/started.json`);
+  if (!claimed.ok) return { status: 'record_unavailable' };
+  if (claimed.value) return { status: 'already_started' };
+  try { await write('started', { at: new Date().toISOString() }); }
+  catch { return { status: 'claim_unavailable' }; }
+
+  let evidence;
+  try { evidence = await ensureResources(storage, scope, signal, { agentOnly: true }); }
+  catch (error) {
+    const failure = detailOf(error);
+    const status = failure.reason === 'storage' ? 'binding_unavailable'
+      : error?.definitive ? 'rejected' : 'outcome_unknown';
+    const { request_id, http_status } = error.agentReceipt ?? failure;
+    evidence = { status, failed_step: error?.failed_step ?? failure.stage ?? 'binding', ...failure,
+      http_status: http_status ?? null, request_id: DIAGNOSTIC_ID.test(request_id ?? '') ? request_id : null,
+      ...(error.agent400 && { agent_error: error.agent400 }) };
+  }
+  try { await write('result', { at: new Date().toISOString(), ...evidence }); }
+  catch { return { status: 'record_unavailable', request_id: evidence.request_id ?? null }; }
+  return { status: evidence.status, request_id: evidence.request_id ?? null };
 }
 
 async function prepareSession(binding, request, signal, onResponse) {
@@ -662,7 +789,7 @@ export function createD5Service({ db, storage }) {
     if (method === 'POST' && !qoderConfigured()) return ready(fallbackResult(request, 'not_configured', 0, 0));
     try {
       if (method === 'GET') return await recover(null, request, accessDigest);
-      return await generate(await digest('campus-drill:d5:anonymous:v1:resources'), request, false, accessDigest);
+      return await generate(await digest(ANONYMOUS_RESOURCE_SCOPE), request, false, accessDigest);
     } catch {
       // An interrupted database operation may have committed. Never issue another model message.
       return ready(fallbackResult(request, 'network', 0, null));

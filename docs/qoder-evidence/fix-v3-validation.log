@@ -1,0 +1,233 @@
+Baseline: deea645
+Started: 2026-11-24 17:59:19 +08:00
+Node: v24.16.0
+Environment: local dispatcher and upstream fixtures only
+
+Command: npm run check:fix:v1
+
+> campus-emergency-drill@0.1.0 check:fix:v1
+> tsx scripts/validate-fix-v1.mjs
+
+FIX-v2 hosted POST: public origin with internal responder URL -> 200/generated, one synthetic message per fixture; none, absent Fetch Metadata and GET without Origin pass.
+FIX-v2 hosted negatives: zero key -> business 404; other origins and cross-/same-site -> 415; zero gateway calls and ledger rows.
+FIX-v2 missing or invalid declaration: public POST remains 415 and internal-origin POST reaches generation.
+FIX authorization/one send: 2 app handlers share SQLite primary keys; anonymous POST 200/202, generated qoder/1, isolated rotation, exact GET, 1 Session, 1 synthetic accepted message. Closed and protected routes pass.
+FIX closed preset/D6: saved and independently read a frozen preset round, rejected wrong key, export contains neither run key nor service credential.
+FIX invalid: invalid_candidate/complete, readback=fallback, 1 synthetic message, no retry or reports.
+FIX lost: network/unknown, readback=generated, 1 synthetic message, no retry or reports.
+FIX timeout: timeout/unknown, readback=generated, 1 synthetic message, no retry or reports.
+FIX claim unavailable: network, 0 synthetic messages.
+FIX slot unavailable: network, 0 synthetic messages.
+FIX sent unavailable: network, 0 synthetic messages.
+FIX result unavailable: network, 1 synthetic messages.
+FIX binding unavailable: not_configured, 0 synthetic messages.
+FIX provider unavailable: not_configured, 0 synthetic messages.
+FIX browser request adapter: designated run selected; same key on normal POST and GET, absent from URL/body, 1 synthetic message.
+Exit: 0
+Command: npm run check:fix:v3
+
+> campus-emergency-drill@0.1.0 check:fix:v3
+> node scripts/validate-fix-v3.mjs
+
+FIX-v3 HTTP 400: private status, correlation, type/code/param and safe clause; no raw echo; replay closed. Agent=1 Environment=0 Session=0 Model=0
+FIX-v3 empty: HTTP 400 preserved. Agent=1 Environment=0 Session=0 Model=0
+FIX-v3 non_json: HTTP 400 preserved. Agent=1 Environment=0 Session=0 Model=0
+FIX-v3 fields_missing: HTTP 400 preserved. Agent=1 Environment=0 Session=0 Model=0
+FIX-v3 parsed: HTTP 400 preserved. Agent=1 Environment=0 Session=0 Model=0
+FIX-v3 limit_reached: HTTP 400 preserved. Agent=1 Environment=0 Session=0 Model=0
+FIX-v3 read_timeout: HTTP 400 preserved. Agent=1 Environment=0 Session=0 Model=0
+FIX-v3 created: request and idempotency key match the normal path. Agent=1 Environment=0 Session=0 Model=0
+FIX-v3 post-close normal preparation: reused the confirmed Agent and created only Environment. Agent=0 Environment=1 Session=0 Model=0
+FIX-v3 reused: Agent=0 Environment=0 Session=0 Model=0
+FIX-v3 binding_unavailable: Agent=0 Environment=0 Session=0 Model=0
+FIX-v3 agent_ready: Agent=1 Environment=0 Session=0 Model=0
+FIX-v3 binding_unavailable: Agent=1 Environment=0 Session=0 Model=0
+FIX-v3 claim_unavailable: Agent=0 Environment=0 Session=0 Model=0
+FIX-v3 outcome_unknown: Agent=1 Environment=0 Session=0 Model=0
+FIX-v3 authorization/ordinary button/default off: no private record or database access. Agent=0 Environment=0 Session=0 Model=0
+Exit: 0
+Command: npm run check:d7
+
+> campus-emergency-drill@0.1.0 check:d7
+> npm run check:d6 && tsx scripts/validate-d7.ts
+
+
+> campus-emergency-drill@0.1.0 check:d6
+> npm run check:d5 && tsx scripts/validate-d6.ts
+
+
+> campus-emergency-drill@0.1.0 check:d5
+> npm run check:d4 && tsx scripts/validate-d5.ts && tsx scripts/verify-d5-cloud-port.mjs && node scripts/verify-d5-cloud-ledger.mjs && node scripts/verify-d5-identity.mjs
+
+
+> campus-emergency-drill@0.1.0 check:d4
+> npm run check:d3 && tsx scripts/validate-d4.ts
+
+
+> campus-emergency-drill@0.1.0 check:d3
+> npm run check:d2 && tsx scripts/validate-d3.ts && tsx scripts/validate-canonical.ts --rejudge-actions
+
+
+> campus-emergency-drill@0.1.0 check:d2
+> npm run check:d1-v2 && tsx scripts/validate-d2.ts
+
+
+> campus-emergency-drill@0.1.0 check:d1-v2
+> npm run check:d1 && tsx scripts/validate-d1-v2.ts
+
+
+> campus-emergency-drill@0.1.0 check:d1
+> npm run typecheck && npm run validate
+
+
+> campus-emergency-drill@0.1.0 typecheck
+> tsc --noEmit
+
+
+> campus-emergency-drill@0.1.0 validate
+> tsx scripts/validate-canonical.ts
+
+D1 canonical fixture validation PASSED
+buildings=8 junctions=1 roads=8 reports=10 actions=6 runs=3
+run-jia-1x [甲] 甄别=80 响应=100 命中=80 违规=70 总分=83 | 响应 45s, 违规 2 次, 缺项 1
+  sort U2,U8,U4 | correct=true | response action seq=1
+run-yi-1x [乙] 甄别=60 响应=0 命中=50 违规=55 总分=44 | 响应 250s, 违规 3 次, 缺项 4
+  sort U2,U8,U4 | correct=true | response action seq=16
+run-jia-plus-a4 [甲补做A4] 甄别=80 响应=100 命中=100 违规=70 总分=90 | 响应 45s, 违规 2 次, 缺项 0
+  sort U2,U8,U4 | correct=true | response action seq=1
+clock_checks: 1× = 45s, 4× = 45s (模拟时刻 30 → 75 固定)
+quality cases: SC-03 / SC-03b / SC-04 / SC-05 / SC-07 / SC-08 通过
+map: 三投影深度相等；GATE3=(500,520)；viewBox=40 40 880 560；8 条路段长度>0；三点折线=10；平移/改名由输入决定
+visibility: t=80 U1/U3/U2/U4/U5；t=300=10；U1 在 30/90/100 的窗口正确
+replay: seq20=5 accepted/4 rejected/5 占用；U1 改判指向 seq2；t=140/164/165 封路状态正确
+rejections: 甲 CN1×2/N7×2、违规 [14,20]；乙 A4×3、违规 [9,14,15]
+score: 83；改动/删减/新增/重排/未知 run 均 null；1×/4× 模拟时刻一致且响应 45s
+route: 静态 null + 空态文案；输入未被修改；专名/坐标/固定 viewBox 扫描通过；README 精度文案一致
+D1-v2 fixture port validation PASSED
+map: projections equal; GATE3=(500,520); viewBox=40 40 880 560; roads=8
+visibility: t=80 U1/U3/U2/U4/U5; t=300=10; U1 30=待核, 90=真报
+replay: jia seq20 5 accepted/4 rejected/5 occupancy; R-N7E flood at 140, closed at 165
+rejections: jia [14,20]; yi [9,14,15]
+score: jia 83; mutation=>null; 1x/4x response=45s
+route: null (pending); hardcode scan clean; README precision notice matched
+D1 静态接口回归通过；D2 应用接入和浏览器验收见 D2 记录
+CD-01/CD-04 数据与应用接口：20 栋、3 门、28 路段；23 节点连通、几何与邻接通过；北区 → 东门 1820.9 px
+小图 Dijkstra：最短、等长字典序、反向折线、零长、孤立、未知、全阻断及无效输入通过
+RE-06 t=139 hazard=null blocked=false: {"from_node_id":"N7","to_node_id":"GATE3","at_sim":139,"status":"ready","node_ids":["N7","GATE3"],"road_ids":["R-N7E"],"points":[{"x":380,"y":520},{"x":500,"y":520}],"length_px":120}
+RE-06 t=140 hazard=flood blocked=false: {"from_node_id":"N7","to_node_id":"GATE3","at_sim":140,"status":"ready","node_ids":["N7","N1","GATE3"],"road_ids":["R-N7-N1","R-N1-GATE3"],"points":[{"x":380,"y":520},{"x":220,"y":500},{"x":180,"y":500},{"x":195,"y":595},{"x":480,"y":595},{"x":500,"y":520}],"length_px":660.0429487556278}
+RE-06 t=164 hazard=flood blocked=false: {"from_node_id":"N7","to_node_id":"GATE3","at_sim":164,"status":"ready","node_ids":["N7","N1","GATE3"],"road_ids":["R-N7-N1","R-N1-GATE3"],"points":[{"x":380,"y":520},{"x":220,"y":500},{"x":180,"y":500},{"x":195,"y":595},{"x":480,"y":595},{"x":500,"y":520}],"length_px":660.0429487556278}
+RE-06 t=165 hazard=flood blocked=true: {"from_node_id":"N7","to_node_id":"GATE3","at_sim":165,"status":"ready","node_ids":["N7","N1","GATE3"],"road_ids":["R-N7-N1","R-N1-GATE3"],"points":[{"x":380,"y":520},{"x":220,"y":500},{"x":180,"y":500},{"x":195,"y":595},{"x":480,"y":595},{"x":500,"y":520}],"length_px":660.0429487556278}
+GATE3 全封闭 → unreachable；恢复 → ready；省略快照 → 初始直达；1×/4× 一致；静态评分及输入保持
+D2 routing and integration validation PASSED
+六动作均有成功例；同秒 A3/A4 因果、警戒完成边界、灾情/断电、稳定拒绝码与尝试留痕通过
+多单位区间峰值、同秒释放、并行资源、目录可选规则、输入错误和配置失败通过
+学员快照：t=165 空账本仅积水；A5 到时封闭；备用路无灾情但封闭后真实不可达；跨结束仍占用
+B 接口：统一 seq、即时竞争、完成边界、1×/4× 一致、回看只读、未来信息隐藏与重置通过
+D3 action engine and learner integration validation PASSED
+D3 rejudged run-jia-1x: 9 actions, 5 resource intervals
+D3 rejudged run-yi-1x: 7 actions, 2 resource intervals
+D3 rejudged run-jia-plus-a4: 10 actions, 6 resource intervals
+D3 reconstructed canonical action and D1 reference score validation PASSED
+buildings=8 junctions=1 roads=8 reports=10 actions=6 runs=3
+run-jia-1x [甲] 甄别=80 响应=100 命中=80 违规=70 总分=83 | 响应 45s, 违规 2 次, 缺项 1
+  sort U2,U8,U4 | correct=true | response action seq=1
+run-yi-1x [乙] 甄别=60 响应=0 命中=50 违规=55 总分=44 | 响应 250s, 违规 3 次, 缺项 4
+  sort U2,U8,U4 | correct=true | response action seq=16
+run-jia-plus-a4 [甲补做A4] 甄别=80 响应=100 命中=100 违规=70 总分=90 | 响应 45s, 违规 2 次, 缺项 0
+  sort U2,U8,U4 | correct=true | response action seq=1
+clock_checks: 1× = 45s, 4× = 45s (模拟时刻 30 → 75 固定)
+quality cases: SC-03 / SC-03b / SC-04 / SC-05 / SC-07 / SC-08 通过
+run-jia-1x: 80/100/80/70 → 83; response=45s; violations=[14,20]
+run-yi-1x: 60/0/50/55 → 44; response=250s; violations=[9,14,15]
+run-jia-plus-a4: 80/100/100/70 → 90; response=45s; violations=[14,21]
+A4 added live: too early → 83; on time → 90
+SC-08: response=220s (11.11); total=46
+JW: as-of-submission judgments, superseded verdict, unjudged report and independent location verified
+Sort: invalid, duplicate, wrong order, one submission per run, review and reset verified
+Scoring: violation floor, single coverage credit and end-of-scenario completion cutoff verified
+TPL-NIGHT-DORM-01: 10 reports, 6 rules-engine actions, score=100, response=45s, closure/review/reset passed
+TPL-LAB-LEAK-01: 10 reports, 4 rules-engine actions, score=100, response=45s, closure/review/reset passed
+TPL-GYM-CROWD-01: 10 reports, 5 rules-engine actions, score=100, response=45s, closure/review/reset passed
+Runtime rejection: malformed/missing fields, references, timing/window, duplicate ID/priority, infeasible actions
+Server: retry 2, invalid 2/no third, disabled 0, 401 1, unknown network 1; timeout + read-only recovery 1; duplicate and fourth-slot arbitration passed on SQLite
+Browser adapter: persisted session cap 3, duplicate reservation, HTTP 401/404/429/503 fallback; Qoder wire contract synthetic HTTP passed
+D5 cloud port matches Node implementation for 3 templates, presets and generated candidates
+D5 regression: atomic request claim; concurrent loser reads the stored terminal and sends once
+D5 regression: rejected result write returns the persisted result, never an unsaved generated candidate
+D5 regression: pre-migration Storage run remains readable and counted without creating database rows
+Sites application mock: asynchronous owner generates once, another owner gets 404 and the original owner reads back the same result.
+Sites route mock: off flags, zero outbound fetches and zero ledger writes with credentials present; cached reads and D1/D2/D5 test gates verified
+D5 service mock: database claim, dedup, conflict, last-slot race, interrupt and recovery passed
+{"sessions":7,"interrupted":"sites_to_cloud_agent","recovered_state":"complete"}
+D5 identity resolution, route-level bucket isolation and binding diagnostics verified
+D6 fixed scores 83/44/90/83; refresh import, read-only historical node, earlier road state, active action and seq preserved; stale, corrupt and unavailable rejected.
+TPL-NIGHT-DORM-01 10 generated reports; two sends; immutable labels; invalid batches and replay verified
+TPL-LAB-LEAK-01 10 generated reports; two sends; immutable labels; invalid batches and replay verified
+TPL-GYM-CROWD-01 10 generated reports; two sends; immutable labels; invalid batches and replay verified
+D6 shared-retry competition, reserved review slot, four-call cap and original-deadline report fallback verified.
+D6 empty Sites mock: first PUT 200 revision 2; building N7 before template and scenario; GET 200 and export match; score 10/0/0/100 = 18.
+D6 building bootstrap: existing data preserved, same template with another start works, 23505 race recovers, forged snapshot and failed inserts leave no committed run.
+D6 all three simulated generated bundles round-trip through PUT, independent GET and exported JSON.
+D6 partial event inserts: previous revision remains readable, conflicting pending sequence rejected, identical retry restores the full run; unfinished first commit stays invisible.
+D6 endpoint contract mock: closed, capability isolation, idempotent duplicate, initial and multi-step revision sync, revision conflict and half-write commit marker passed.
+D7 Node/SQLite: normal HTTP start and GET, wrong-key refusal, zero action summary, 8-second UI cutoff, late isolation, grounded output and four-slot concurrency pass.
+D7 Sites mock: authenticated scenario and review share one root (different learner ID), server ignores client count, protected PUT/GET agree, explicit retry once, refresh no new send. Shared Node/Sites success and zero-action fixtures pass.
+Exit: 0
+Command: npm run build
+
+> campus-emergency-drill@0.1.0 build
+> vue-tsc --noEmit -p tsconfig.app.json && vite build
+
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "../engine-port" without a file extension (src/run-store/validation.ts:2:34). Add the file extension
+  - import "../scenario-generation/bundle" without a file extension (src/run-store/validation.ts:3:24). Add the file extension
+  - import "./action-engine" without a file extension (src/engine-port.ts:2:63). Add the file extension
+  - import "./contracts" without a file extension (src/run-store/validation.ts:5:31). Add the file extension
+  - import "./fixture-port" without a file extension (src/engine-port.ts:3:146). Add the file extension
+  - import "./routing" without a file extension (src/engine-port.ts:5:27). Add the file extension
+  - import "./score-engine" without a file extension (src/engine-port.ts:6:45). Add the file extension
+  - import "./fixture-port" without a file extension (src/routing.ts:2:99). Add the file extension
+  - import "./fixture-port" without a file extension (src/score-engine.ts:5:45). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+vite v8.3.8 building client environment for production...
+transforming...
+✓ 74 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.57 kB │ gzip:   0.39 kB
+dist/assets/index-CWfjNRQU.css   88.56 kB │ gzip:  17.29 kB
+dist/assets/index-DtgtQpcC.js   343.73 kB │ gzip: 114.14 kB
+
+✓ built in 349ms
+Exit: 0
+Command: npm run build:sites:d6
+
+> campus-emergency-drill@0.1.0 build:sites:d6
+> node scripts/build-d6-sites.mjs
+
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "../engine-port" without a file extension (src/run-store/validation.ts:2:34). Add the file extension
+  - import "../scenario-generation/bundle" without a file extension (src/run-store/validation.ts:3:24). Add the file extension
+  - import "./contracts" without a file extension (src/run-store/validation.ts:5:31). Add the file extension
+  - import "./action-engine" without a file extension (src/engine-port.ts:2:63). Add the file extension
+  - import "./fixture-port" without a file extension (src/engine-port.ts:3:146). Add the file extension
+  - import "./routing" without a file extension (src/engine-port.ts:5:27). Add the file extension
+  - import "./score-engine" without a file extension (src/engine-port.ts:6:45). Add the file extension
+  - import "./fixture-port" without a file extension (src/routing.ts:2:99). Add the file extension
+  - import "./fixture-port" without a file extension (src/score-engine.ts:5:45). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+vite v8.3.8 building client environment for production...
+transforming...
+✓ 74 modules transformed.
+rendering chunks...
+computing gzip size...
+cloud-verify/dist/d6/index.html                   0.57 kB │ gzip:   0.39 kB
+cloud-verify/dist/d6/assets/index-CWfjNRQU.css   88.56 kB │ gzip:  17.29 kB
+cloud-verify/dist/d6/assets/index-B7d4cDCQ.js   343.90 kB │ gzip: 114.24 kB
+
+✓ built in 446ms
+For the existing A site, use D:\Code\Qoder_MVP\cloud-verify\dist as the static root and D:\Code\Qoder_MVP\cloud-verify\functions as the Functions directory.
+Exit: 0
+SHA256 d5-service.mjs: 9559520c5b37b5a4a4be1805e788da885463cd0d8e936721db387d36d0d7caf7
+SHA256 d5-routes.mjs: 89f7d5910acc676c432d6bde5d928c5f81759768d21c3063fb1d4185f2bafe84
+SHA256 routes.mjs: fcf9e44386294a1d4d5acf5361655fe3f4b62311a25560c07b13f59c1bd16a4d

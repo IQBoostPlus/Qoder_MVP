@@ -1,6 +1,6 @@
 // Same-origin D5 routes. Normal generation uses platform identity.
 import { ValidationError, fallbackResult, validateRequest } from './d5-bundle.mjs';
-import { ProviderError, bindingFailure, createD5Service, qoderConfigured, safeCorrelationId } from './d5-service.mjs';
+import { ProviderError, bindingFailure, createD5Service, diagnoseAnonymousAgent, qoderConfigured, safeCorrelationId } from './d5-service.mjs';
 import { createDatabaseLedger } from './d5-db-ledger.mjs';
 import { createReviewRoute, createRunRepository, presetReviewRoot, reviewOriginMatches, usesGenerationBudget } from './d6-shared.mjs';
 
@@ -20,6 +20,8 @@ function envValue(name) {
 }
 export const envEnabled = (name) => envValue(name) === '1';
 export const anonymousExperimentEnabled = () => envEnabled('D5_ENABLE_ANON_EXPERIMENT');
+export const agentDiagnosticEnabled = () => Boolean(envValue('D5_ANON_AGENT_DIAGNOSTIC_ID'));
+export const agentDiagnosticPath = '/api/d5/agent-diagnostic';
 
 // Only fields supplied by the platform's requireUser() result are considered.
 // Browser-submitted values never reach this list.
@@ -118,8 +120,11 @@ export function createD5Routes({ db, storage, BackendError }) {
 
     try {
       const experiment = anonymousExperimentEnabled();
-      const enabled = !experiment && envEnabled('D5_ENABLE_QODER');
-      if (experiment && path === '/api/d5/scenario' && (method === 'POST' || method === 'GET')) {
+      const diagnosticId = envValue('D5_ANON_AGENT_DIAGNOSTIC_ID');
+      const enabled = !experiment && !diagnosticId && envEnabled('D5_ENABLE_QODER');
+      const scenario = path === '/api/d5/scenario' && (method === 'POST' || method === 'GET');
+      const diagnostic = Boolean(diagnosticId) && path === agentDiagnosticPath && method === 'POST';
+      if (experiment && (scenario || diagnostic)) {
         const origin = request.headers.get('origin');
         const fetchSite = request.headers.get('sec-fetch-site');
         const publicOrigin = envValue('D5_ANON_EXPERIMENT_PUBLIC_ORIGIN') ?? '';
@@ -130,15 +135,21 @@ export function createD5Routes({ db, storage, BackendError }) {
           try { expectedOrigin = new URL(publicOrigin).origin; } catch { /* keep the original reference */ }
         }
         if (origin && origin !== expectedOrigin || fetchSite && !['none', 'same-origin'].includes(fetchSite)) fail('same_origin_required', 415);
-        const input = validateRequest(method === 'POST' ? await readBody(request) : query(url));
+        if (scenario && diagnosticId) fail('agent_diagnostic_only', 503);
+        const input = diagnostic ? await readBody(request) : validateRequest(method === 'POST' ? await readBody(request) : query(url));
+        if (diagnostic && (Object.keys(input).length !== 1 || typeof input.run_id !== 'string')) fail('invalid_request', 400);
         const binding = /^([\w-]{12,80}):([0-9a-f]{64})$/.exec(envValue('D5_ANON_EXPERIMENT_BINDING') ?? '');
-        if (!binding) return json({ status: 'ready', result: fallbackResult(input, 'not_configured', 0, 0) });
+        if (!binding) {
+          if (diagnostic) fail('not_found', 404);
+          return json({ status: 'ready', result: fallbackResult(input, 'not_configured', 0, 0) });
+        }
         const key = request.headers.get('x-run-key');
         if (input.run_id !== binding[1] || !key || !/^[0-9a-f]{64}$/.test(key)) fail('not_found', 404);
         const owner = await digest(key);
         let mismatch = 0;
         for (let index = 0; index < owner.length; index++) mismatch |= owner.charCodeAt(index) ^ binding[2].charCodeAt(index);
         if (mismatch) fail('not_found', 404);
+        if (diagnostic) return json(await diagnoseAnonymousAgent(storage, diagnosticId));
         const reply = await service.anonymousScenario(input, method, owner);
         return json(reply, reply.status === 'pending' ? 202 : reply.status === 'missing' ? 404 : 200);
       }
