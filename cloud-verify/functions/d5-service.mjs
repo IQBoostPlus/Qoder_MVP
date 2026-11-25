@@ -565,7 +565,8 @@ async function prepareSession(binding, request, signal, onResponse) {
   const session = await api('/api/v1/cloud/sessions', {
     method: 'POST', signal, onResponse,
     body: {
-      agent: { type: 'agent', id: binding.agent_id, version: binding.agent_version },
+      agent: binding.agent_version === undefined ? binding.agent_id
+        : { type: 'agent', id: binding.agent_id, version: binding.agent_version },
       environment_id: binding.environment_id,
       title: 'D5 scenario ' + request.template_id,
       metadata: { app: 'd5', run_id: request.run_id, request_id: request.request_id },
@@ -610,15 +611,33 @@ function bound(ms) {
   return { signal: controller.signal, clear: () => clearTimeout(timer), controller };
 }
 
+// The existing (user_hash, run_id, kind) primary key arbitrates the last ticket
+// across Sites instances. A failed or interrupted attempt keeps its ticket.
+async function reservePublicScenario(db, limit) {
+  const table = 'd5_generation_results';
+  const scope = { user_hash: await digest('public-scenario/site-budget'), run_id: 'public-scenario-budget-v1' };
+  const existing = await db.from(table).select('kind').eq('user_hash', scope.user_hash).eq('run_id', scope.run_id).limit(100);
+  if (existing?.error || !Array.isArray(existing?.data)) throw new ProviderError('storage');
+  const occupied = new Set(existing.data.map(row => row.kind));
+  for (let i = 1; i <= limit; i++) {
+    const kind = 'attempt-' + i;
+    if (occupied.has(kind)) continue;
+    const result = await db.from(table).insert({ ...scope, kind, payload: '{}', created_at: new Date().toISOString() });
+    if (result && !result.error) return true;
+    if (result?.error?.code !== '23505') throw new ProviderError('storage');
+  }
+  return false;
+}
+
 export function createD5Service({ db, storage }) {
   if (!db) throw new Error('database_not_configured');
   const ledgerFor = (userHash, runId) => createDatabaseLedger({ db, storage, userHash, runId });
   const experimentLedger = async (accessDigest) => createDatabaseLedger({ db, storage, accessDigest,
     userHash: await digest('campus-drill:d5:anonymous:v1:budget'), runId: 'd5-anonymous-experiment-v1' });
 
-  async function generate(userHash, input, includeReports = false, accessDigest) {
+  async function generate(userHash, input, includeReports = false, accessDigest, publicRun) {
     const request = validateRequest(input);
-    const ledger = accessDigest ? await experimentLedger(accessDigest) : ledgerFor(userHash, request.run_id);
+    const ledger = publicRun?.ledger ?? (accessDigest ? await experimentLedger(accessDigest) : ledgerFor(userHash, request.run_id));
     const started = performance.now();
     const claim = await ledger.claim(request);
     if (claim === 'existing') return read(ledger, request);
@@ -627,7 +646,7 @@ export function createD5Service({ db, storage }) {
 
     const issues = [];
     const trace = { app: 'd5', instance: INSTANCE, template: request.template_id, modifiers: request.modifiers, phases: {}, started_at: new Date().toISOString(),
-      ...(accessDigest ? { authorization: 'owner_bound_run_key' } : {}) };
+      ...(accessDigest ? { authorization: publicRun ? 'public_run_key' : 'owner_bound_run_key' } : {}) };
     const deadline = bound(MODEL_WAIT_MS);
     async function finish(result, completing) {
       try {
@@ -657,7 +676,8 @@ export function createD5Service({ db, storage }) {
 
     let binding;
     try {
-      binding = await ensureResources(storage, userHash, deadline.signal);
+      if (publicRun && !(await reservePublicScenario(db, publicRun.limit))) return fallback('budget');
+      binding = publicRun?.binding ?? await ensureResources(storage, userHash, deadline.signal);
       trace.model = binding.model;
       trace.agent = await redactId(binding.agent_id);
       trace.environment = await redactId(binding.environment_id);
@@ -740,9 +760,9 @@ export function createD5Service({ db, storage }) {
     return ready(fallbackResult(request, 'not_configured', 0, 0));
   }
 
-  async function recover(userHash, input, accessDigest) {
+  async function recover(userHash, input, accessDigest, publicLedger) {
     const request = validateRequest(input);
-    const ledger = accessDigest ? await experimentLedger(accessDigest) : ledgerFor(userHash, request.run_id);
+    const ledger = publicLedger ?? (accessDigest ? await experimentLedger(accessDigest) : ledgerFor(userHash, request.run_id));
     if (!(await ledger.matches(request))) return { status: 'missing' };
     const stored = await ledger.readResult();
     const readCurrent = async () => stored ? ready(stored.result) : { status: 'pending', ...(await ledger.usage()) };
@@ -783,6 +803,19 @@ export function createD5Service({ db, storage }) {
     return saved && accessDigest ? { ...reply, trace: { authorization: 'owner_bound_run_key',
       recovered_session: await redactId(attempt.session_id), reply_read: true, candidate_valid: result.selection === 'generated',
       completion_marker_pending: !completed } } : reply;
+  }
+
+  async function publicScenario(request, method, accessDigest, config) {
+    const userHash = await digest('public-scenario/' + accessDigest);
+    const ledger = createDatabaseLedger({ db, storage, userHash, accessDigest, runId: request.run_id });
+    if (method !== 'GET' && (!qoderConfigured() || !/^agent_[\w-]+$/.test(config.agent_id ?? '') ||
+      !/^env_[\w-]+$/.test(config.environment_id ?? '') || !Number.isSafeInteger(config.limit) ||
+      config.limit < 1 || config.limit > 100)) return ready(fallbackResult(request, 'not_configured', 0, 0));
+    const reply = method === 'GET' ? await recover(userHash, request, accessDigest, ledger)
+      : await generate(userHash, request, false, accessDigest, { ledger, binding: config, limit: config.limit });
+    // Browser clients need only the result and readback state.
+    const { trace, ...publicReply } = reply;
+    return publicReply;
   }
 
   async function anonymousScenario(request, method, accessDigest) {
@@ -972,7 +1005,7 @@ export function createD5Service({ db, storage }) {
     return { usage: await ledger.usage(), result: await ledger.readResult(), instance: INSTANCE };
   }
 
-  return { generate, recover, disabled, anonymousScenario, claimLastSlot, interrupt, diag, warm, seed, stats, upstream, bindingStatus, reviewProvider, instance: INSTANCE };
+  return { generate, recover, disabled, publicScenario, anonymousScenario, claimLastSlot, interrupt, diag, warm, seed, stats, upstream, bindingStatus, reviewProvider, instance: INSTANCE };
 }
 
 export { MODEL_WAIT_MS, GENERATION_WAIT_MS };

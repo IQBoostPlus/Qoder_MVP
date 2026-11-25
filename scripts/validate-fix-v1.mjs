@@ -121,7 +121,14 @@ function fixture({ mode = 'valid', failInsert, appUrl = `${base}/functions/v1/ap
     if (path.endsWith('/models')) return Response.json({ data: [{ id: 'fixture-model', enabled: true }] });
     if (path.endsWith('/agents')) return Response.json({ id: 'agent_fixture', version: 1 });
     if (path.endsWith('/environments')) return Response.json({ id: 'env_fixture' });
-    if (path.endsWith('/sessions')) return Response.json({ id: `sess_anonymous_${++calls.sessions}` });
+    if (path.endsWith('/sessions')) {
+      if (flags.get('D5_ENABLE_PUBLIC_SCENARIO') === '1') {
+        const session = JSON.parse(options.body);
+        assert.equal(session.agent, flags.get('QODER_AGENT_ID'));
+        assert.equal(session.environment_id, flags.get('QODER_ENVIRONMENT_ID'));
+      }
+      return Response.json({ id: `sess_anonymous_${++calls.sessions}` });
+    }
     assert(path.endsWith('/events'));
     if (options.method === 'POST') {
       const events = JSON.parse(options.body).events;
@@ -153,6 +160,35 @@ function fixture({ mode = 'valid', failInsert, appUrl = `${base}/functions/v1/ap
 const auth = { 'x-test-identity': 'signed-in' };
 const lookup = (request = input) => scenario + '?' + exactQuery(request);
 const post = (handle, payload = input, extra = {}) => handle(scenario, { method: 'POST', payload, ...extra });
+{
+  const test = fixture();
+  try {
+    test.flags.delete('D5_ENABLE_ANON_EXPERIMENT');
+    test.flags.delete('D5_ANON_EXPERIMENT_BINDING');
+    test.flags.set('D5_ENABLE_PUBLIC_SCENARIO', '1');
+    test.flags.set('D5_PUBLIC_SCENARIO_LIMIT', '1');
+    test.flags.set('QODER_AGENT_ID', 'agent_configured');
+    test.flags.set('QODER_ENVIRONMENT_ID', 'env_configured');
+    const handle = test.instance();
+    const extra = { headers: { origin: base } };
+    const second = { ...input, run_id: 'another-public-training-run' };
+    const responses = await Promise.all([post(handle, input, extra), post(test.instance(), second, extra)]);
+    const results = await Promise.all(responses.map(async reply => (await reply.json()).result));
+    const winner = results.findIndex(result => result.selection === 'generated');
+    assert.notEqual(winner, -1);
+    assert.equal(results[1 - winner].fallback_reason, 'budget');
+    const original = winner === 0 ? input : second;
+    assert.equal(results[winner].provider, 'qoder');
+    assert.equal(test.identityChecks(), 0);
+    assert.equal(test.calls.sessions, 1);
+    assert.equal(test.calls.upstream, 2 + test.calls.reads); // session + message; no provisioning
+    assert.deepEqual((await (await handle(lookup(original))).json()).result, results[winner]);
+    assert.equal((await handle(lookup(original), { key: wrongKey })).status, 404);
+    assert.deepEqual((await (await post(handle, original, extra)).json()).result, results[winner]);
+    assert.equal(test.calls.messages, 1);
+    console.log('Public scenario: configured Agent, anonymous generation, isolated readback and site-wide limit passed.');
+  } finally { test.close(); }
+}
 const result = async (promise) => (await (await promise).json()).result;
 
 // Sites may give the Function an internal URL while the browser sends the public origin.

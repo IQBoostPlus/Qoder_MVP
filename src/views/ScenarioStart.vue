@@ -101,8 +101,8 @@ async function generate(recover: boolean): Promise<void> {
     </ul>
     <p v-if="template.modifiers.length" class="note">训练背景 · {{ template.modifiers.map((option) => modifierLabels[option]).join('、') }}</p>
     <div class="scenario-controls">
-      <button class="btn btn-primary" @click="startPreset">开始预置训练</button>
-      <button class="btn" :disabled="!!phase || count >= SESSION_LIMIT || storageProblem" @click="generate(false)">请求 AI 剧本</button>
+      <button class="btn btn-primary" :disabled="!!phase || count >= SESSION_LIMIT || storageProblem" @click="generate(false)">请求 AI 剧本</button>
+      <button class="btn" @click="startPreset">开始预置训练</button>
       <button v-if="pending" class="btn" :disabled="!!phase" @click="generate(true)">查询上次生成</button>
       <button class="btn" @click="emit('canonical')">开始 D4 标准训练</button>
     </div>

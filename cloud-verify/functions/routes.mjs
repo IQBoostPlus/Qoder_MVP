@@ -1,6 +1,6 @@
 import { createCloudAgentsClient } from './cloud-agents.mjs';
 import { createD2Routes } from './d2-verify.mjs';
-import { agentDiagnosticEnabled, agentDiagnosticPath, anonymousExperimentEnabled, createD5Routes, envEnabled } from './d5-routes.mjs';
+import { agentDiagnosticEnabled, agentDiagnosticPath, anonymousExperimentEnabled, publicScenariosEnabled, createD5Routes, envEnabled } from './d5-routes.mjs';
 import { createRunRoute } from './d6-shared.mjs';
 
 const CLOUD_API_ORIGIN = 'https://api.qoder.com.cn';
@@ -124,6 +124,9 @@ export function application({ db, storage, requireUser, BackendError }) {
     }
 
     if (path === '/api/d6/runs') return handleD6(request);
+    if (publicScenariosEnabled() && path === '/api/d5/scenario' && ['GET', 'POST'].includes(request.method)) {
+      return handleD5(ctx, path, null);
+    }
     if (anonymousExperimentEnabled() && (path === '/api/d5/scenario' && ['GET', 'POST'].includes(request.method) ||
       agentDiagnosticEnabled() && path === agentDiagnosticPath && request.method === 'POST')) {
       return handleD5(ctx, path, null);

@@ -21,6 +21,7 @@ function envValue(name) {
 export const envEnabled = (name) => envValue(name) === '1';
 export const anonymousExperimentEnabled = () => envEnabled('D5_ENABLE_ANON_EXPERIMENT');
 export const agentDiagnosticEnabled = () => Boolean(envValue('D5_ANON_AGENT_DIAGNOSTIC_ID'));
+export const publicScenariosEnabled = () => envEnabled('D5_ENABLE_PUBLIC_SCENARIO') && !anonymousExperimentEnabled() && !agentDiagnosticEnabled();
 export const agentDiagnosticPath = '/api/d5/agent-diagnostic';
 
 // Only fields supplied by the platform's requireUser() result are considered.
@@ -124,7 +125,8 @@ export function createD5Routes({ db, storage, BackendError }) {
       const enabled = !experiment && !diagnosticId && envEnabled('D5_ENABLE_QODER');
       const scenario = path === '/api/d5/scenario' && (method === 'POST' || method === 'GET');
       const diagnostic = Boolean(diagnosticId) && path === agentDiagnosticPath && method === 'POST';
-      if (experiment && (scenario || diagnostic)) {
+      const publicScenario = scenario && publicScenariosEnabled();
+      if (publicScenario || experiment && (scenario || diagnostic)) {
         const origin = request.headers.get('origin');
         const fetchSite = request.headers.get('sec-fetch-site');
         const publicOrigin = envValue('D5_ANON_EXPERIMENT_PUBLIC_ORIGIN') ?? '';
@@ -135,8 +137,18 @@ export function createD5Routes({ db, storage, BackendError }) {
           try { expectedOrigin = new URL(publicOrigin).origin; } catch { /* keep the original reference */ }
         }
         if (origin && origin !== expectedOrigin || fetchSite && !['none', 'same-origin'].includes(fetchSite)) fail('same_origin_required', 415);
+        if (publicScenario && method === 'POST' && origin !== expectedOrigin) fail('same_origin_required', 415);
         if (scenario && diagnosticId) fail('agent_diagnostic_only', 503);
         const input = diagnostic ? await readBody(request) : validateRequest(method === 'POST' ? await readBody(request) : query(url));
+        if (publicScenario) {
+          const key = request.headers.get('x-run-key');
+          if (!/^[a-f0-9]{64}$/.test(key ?? '')) fail('not_found', 404);
+          const reply = await service.publicScenario(input, method, await digest(key), {
+            agent_id: envValue('QODER_AGENT_ID'), environment_id: envValue('QODER_ENVIRONMENT_ID'),
+            limit: Number(envValue('D5_PUBLIC_SCENARIO_LIMIT')),
+          });
+          return json(reply, reply.status === 'pending' ? 202 : reply.status === 'missing' ? 404 : 200);
+        }
         if (diagnostic && (Object.keys(input).length !== 1 || typeof input.run_id !== 'string')) fail('invalid_request', 400);
         const binding = /^([\w-]{12,80}):([0-9a-f]{64})$/.exec(envValue('D5_ANON_EXPERIMENT_BINDING') ?? '');
         if (!binding) {
