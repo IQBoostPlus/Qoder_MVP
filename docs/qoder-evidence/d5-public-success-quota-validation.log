@@ -1,0 +1,82 @@
+Baseline: a5ee9cf
+Started: 2026-11-28 19:33:53 +08:00
+Node: v24.16.0
+Environment: local SQLite, Sites dispatcher and mocked upstream. No deployment or real model calls.
+
+Command: npm run check:fix:v1
+
+> campus-emergency-drill@0.1.0 check:fix:v1
+> tsx scripts/validate-fix-v1.mjs
+
+Public scenario: configured Agent, anonymous generation, isolated readback and site-wide limit passed.
+Public quota limit=1: not_configured/not_sent -> another request succeeded; replay and audit preserved.
+Public quota limit=1: unauthorized/not_sent -> another request succeeded; replay and audit preserved.
+Public quota limit=1: network/not_sent -> another request succeeded; replay and audit preserved.
+Public quota limit=1: invalid_candidate/complete -> another request succeeded; replay and audit preserved.
+Public quota limit=1: unauthorized/complete -> another request succeeded; replay and audit preserved.
+Public quota limit=1: timeout/not_sent -> another request succeeded; replay and audit preserved.
+Public quota limit=3: three failures, fourth request generated, concurrent reused slots respect the limit.
+Public quota unknown -> generated: GET-only settlement, concurrent replay and audit preserved.
+Public quota unknown -> fallback: GET-only settlement, concurrent replay and audit preserved.
+FIX-v2 hosted POST: public origin with internal responder URL -> 200/generated, one synthetic message per fixture; none, absent Fetch Metadata and GET without Origin pass.
+FIX-v2 hosted negatives: zero key -> business 404; other origins and cross-/same-site -> 415; zero gateway calls and ledger rows.
+FIX-v2 missing or invalid declaration: public POST remains 415 and internal-origin POST reaches generation.
+FIX authorization/one send: 2 app handlers share SQLite primary keys; anonymous POST 200/202, generated qoder/1, isolated rotation, exact GET, 1 Session, 1 synthetic accepted message. Closed and protected routes pass.
+FIX closed preset/D6: saved and independently read a frozen preset round, rejected wrong key, export contains neither run key nor service credential.
+FIX invalid: invalid_candidate/complete, readback=fallback, 1 synthetic message, no retry or reports.
+FIX lost: network/unknown, readback=generated, 1 synthetic message, no retry or reports.
+FIX timeout: timeout/unknown, readback=generated, 1 synthetic message, no retry or reports.
+FIX claim unavailable: network, 0 synthetic messages.
+FIX slot unavailable: network, 0 synthetic messages.
+FIX sent unavailable: network, 0 synthetic messages.
+FIX result unavailable: network, 1 synthetic messages.
+FIX binding unavailable: not_configured, 0 synthetic messages.
+FIX provider unavailable: not_configured, 0 synthetic messages.
+FIX browser request adapter: designated run selected; same key on normal POST and GET, absent from URL/body, 1 synthetic message.
+Exit: 0
+Command: node scripts/verify-d5-cloud-ledger.mjs
+D5 regression: atomic request claim; concurrent loser reads the stored terminal and sends once
+D5 regression: rejected result write returns the persisted result, never an unsaved generated candidate
+D5 regression: pre-migration Storage run remains readable and counted without creating database rows
+Sites application mock: asynchronous owner generates once, another owner gets 404 and the original owner reads back the same result.
+Sites route mock: off flags, zero outbound fetches and zero ledger writes with credentials present; cached reads and D1/D2/D5 test gates verified
+D5 service mock: database claim, dedup, conflict, last-slot race, interrupt and recovery passed
+{"sessions":7,"interrupted":"sites_to_cloud_agent","recovered_state":"complete"}
+Public quota recovery: failed settlement after durable fallback repaired by next claim; late read cannot overwrite the new owner.
+Public quota compatibility: legacy tickets without an owner are preserved.
+Public quota persistence: failed terminal write stays reserved; only durable GET recovery can finalize the success.
+Exit: 0
+Command: npm run typecheck:app
+
+> campus-emergency-drill@0.1.0 typecheck:app
+> vue-tsc --noEmit -p tsconfig.app.json
+
+Exit: 0
+Command: npm run build:sites:d6
+
+> campus-emergency-drill@0.1.0 build:sites:d6
+> node scripts/build-d6-sites.mjs
+
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "../engine-port" without a file extension (src/run-store/validation.ts:2:34). Add the file extension
+  - import "../scenario-generation/bundle" without a file extension (src/run-store/validation.ts:3:24). Add the file extension
+  - import "./contracts" without a file extension (src/run-store/validation.ts:5:31). Add the file extension
+  - import "./action-engine" without a file extension (src/engine-port.ts:2:63). Add the file extension
+  - import "./fixture-port" without a file extension (src/engine-port.ts:3:146). Add the file extension
+  - import "./routing" without a file extension (src/engine-port.ts:5:27). Add the file extension
+  - import "./score-engine" without a file extension (src/engine-port.ts:6:45). Add the file extension
+  - import "./fixture-port" without a file extension (src/routing.ts:2:99). Add the file extension
+  - import "./fixture-port" without a file extension (src/score-engine.ts:5:45). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+vite v8.3.8 building client environment for production...
+transforming...
+✓ 74 modules transformed.
+rendering chunks...
+computing gzip size...
+cloud-verify/dist/d6/index.html                   0.57 kB │ gzip:   0.38 kB
+cloud-verify/dist/d6/assets/index-CU2R8ird.css   88.56 kB │ gzip:  17.29 kB
+cloud-verify/dist/d6/assets/index-DN10ySZd.js   343.90 kB │ gzip: 114.23 kB
+
+✓ built in 666ms
+For the existing A site, use D:\Code\Qoder_MVP\cloud-verify\dist as the static root and D:\Code\Qoder_MVP\cloud-verify\functions as the Functions directory.
+Exit: 0

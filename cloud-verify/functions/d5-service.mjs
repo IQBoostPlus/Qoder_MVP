@@ -611,22 +611,70 @@ function bound(ms) {
   return { signal: controller.signal, clear: () => clearTimeout(timer), controller };
 }
 
-// The existing (user_hash, run_id, kind) primary key arbitrates the last ticket
-// across Sites instances. A failed or interrupted attempt keeps its ticket.
-async function reservePublicScenario(db, limit) {
-  const table = 'd5_generation_results';
+const PUBLIC_RESULTS = 'd5_generation_results';
+const RELEASED = JSON.stringify({ state: 'released' });
+
+async function publicScenarioBudget(db, limit, userHash, request) {
   const scope = { user_hash: await digest('public-scenario/site-budget'), run_id: 'public-scenario-budget-v1' };
-  const existing = await db.from(table).select('kind').eq('user_hash', scope.user_hash).eq('run_id', scope.run_id).limit(100);
-  if (existing?.error || !Array.isArray(existing?.data)) throw new ProviderError('storage');
-  const occupied = new Set(existing.data.map(row => row.kind));
-  for (let i = 1; i <= limit; i++) {
-    const kind = 'attempt-' + i;
-    if (occupied.has(kind)) continue;
-    const result = await db.from(table).insert({ ...scope, kind, payload: '{}', created_at: new Date().toISOString() });
-    if (result && !result.error) return true;
-    if (result?.error?.code !== '23505') throw new ProviderError('storage');
+  const owner = { user_hash: userHash, run_id: request.run_id, request_id: request.request_id };
+  const reservation = JSON.stringify({ state: 'reserved', ...owner });
+  const scoped = (query) => query.eq('user_hash', scope.user_hash).eq('run_id', scope.run_id);
+
+  async function replace(expected, payload, kind) {
+    let query = scoped(db.from(PUBLIC_RESULTS).update({ payload })).eq('payload', expected);
+    if (kind) query = query.eq('kind', kind);
+    const result = await query.select('kind');
+    if (result?.error || !Array.isArray(result?.data)) throw new ProviderError('storage');
+    return result.data.length > 0;
   }
-  return false;
+
+  async function reserve() {
+    const existing = await scoped(db.from(PUBLIC_RESULTS).select('kind,payload')).limit(100);
+    if (existing?.error || !Array.isArray(existing?.data)) throw new ProviderError('storage');
+    const occupied = new Map(existing.data.map(({ kind, payload }) => [kind, payload]));
+    for (let i = 1; i <= limit; i++) {
+      const kind = 'attempt-' + i;
+      if (occupied.get(kind) === RELEASED) {
+        if (await replace(RELEASED, reservation, kind)) return true;
+      } else if (!occupied.has(kind)) {
+        const result = await db.from(PUBLIC_RESULTS).insert({ ...scope, kind, payload: reservation, created_at: new Date().toISOString() });
+        if (result && !result.error) return true;
+        if (result?.error?.code !== '23505') throw new ProviderError('storage');
+      }
+    }
+
+    // Repair a missed release after a crash between writing the terminal result
+    // and settling the reservation. The old owner and the full payload are checked.
+    for (let i = 1; i <= limit; i++) {
+      const kind = 'attempt-' + i;
+      const payload = occupied.get(kind);
+      let prior;
+      try { prior = JSON.parse(payload ?? 'null'); } catch { continue; }
+      if (prior?.state !== 'reserved' || !/^[a-f0-9]{64}$/.test(prior.user_hash ?? '') ||
+        !/^[\w-]{12,80}$/.test(prior.run_id ?? '') || !/^[\w-]{12,80}$/.test(prior.request_id ?? '')) continue;
+      const stored = await db.from(PUBLIC_RESULTS).select('payload').eq('user_hash', prior.user_hash)
+        .eq('run_id', prior.run_id).eq('kind', 'final').limit(1);
+      if (stored?.error || !Array.isArray(stored?.data)) throw new ProviderError('storage');
+      if (!stored.data.length) continue;
+      const final = JSON.parse(stored.data[0].payload);
+      if (final?.request?.run_id === prior.run_id && final.request.request_id === prior.request_id &&
+        final.selection === 'fallback' && ['not_sent', 'complete'].includes(final.upstream_state) &&
+        await replace(payload, reservation, kind)) return true;
+    }
+    return false;
+  }
+
+  async function settle(result) {
+    if (result.selection === 'fallback' && ['not_sent', 'complete'].includes(result.upstream_state)) {
+      await replace(reservation, RELEASED);
+    } else if (result.selection === 'generated' && result.provider === 'qoder' && result.fallback_reason === null &&
+      result.upstream_state === 'complete') {
+      validateBundle(result.bundle, request, 'generated');
+      await replace(reservation, JSON.stringify({ state: 'success', ...owner }));
+    }
+  }
+
+  return { reserve, settle };
 }
 
 export function createD5Service({ db, storage }) {
@@ -652,7 +700,8 @@ export function createD5Service({ db, storage }) {
       try {
         const usage = await ledger.usage({ completing });
         const final = { ...result, ...usage, issues, elapsed_ms: Math.round(performance.now() - started) };
-        const saved = await ledger.save(final);
+        // Public terminal results share the same unique final row as GET recovery.
+        const saved = publicRun && final.upstream_state !== 'unknown' ? await ledger.recover(final) : await ledger.save(final);
         if (saved && completing) {
           try { await ledger.markComplete(completing); }
           catch { trace.completion_marker_pending = true; }
@@ -676,7 +725,8 @@ export function createD5Service({ db, storage }) {
 
     let binding;
     try {
-      if (publicRun && !(await reservePublicScenario(db, publicRun.limit))) return fallback('budget');
+      if (publicRun && !publicRun.configured) return fallback('not_configured');
+      if (publicRun && !(await publicRun.budget.reserve())) return fallback('budget');
       binding = publicRun?.binding ?? await ensureResources(storage, userHash, deadline.signal);
       trace.model = binding.model;
       trace.agent = await redactId(binding.agent_id);
@@ -734,7 +784,8 @@ export function createD5Service({ db, storage }) {
         }, deadline.signal));
       } catch (error) {
         if (!(error instanceof ValidationError)) trace.phases[slot].failure = { step: phase, ...detailOf(error) };
-        if (deadline.signal.aborted) return fallback('timeout', 'qoder');
+        const definitiveRejection = phase === 'send' && error instanceof ProviderError && error.definitive;
+        if (deadline.signal.aborted && !(publicRun && (definitiveRejection || error instanceof ValidationError))) return fallback('timeout', 'qoder');
         if (error instanceof ValidationError) {
           issues.push(error.issue);
           trace.phases[slot].issue = error.issue;
@@ -742,7 +793,7 @@ export function createD5Service({ db, storage }) {
           continue;
         }
         if (error instanceof ProviderError) {
-          const completing = phase === 'send' && error.definitive ? slot : undefined;
+          const completing = definitiveRejection ? slot : undefined;
           if (!accessDigest && error.definitive) await ledger.markComplete(slot);
           return fallback(error.reason, 'qoder', accessDigest ? completing : undefined);
         }
@@ -808,11 +859,22 @@ export function createD5Service({ db, storage }) {
   async function publicScenario(request, method, accessDigest, config) {
     const userHash = await digest('public-scenario/' + accessDigest);
     const ledger = createDatabaseLedger({ db, storage, userHash, accessDigest, runId: request.run_id });
-    if (method !== 'GET' && (!qoderConfigured() || !/^agent_[\w-]+$/.test(config.agent_id ?? '') ||
-      !/^env_[\w-]+$/.test(config.environment_id ?? '') || !Number.isSafeInteger(config.limit) ||
-      config.limit < 1 || config.limit > 100)) return ready(fallbackResult(request, 'not_configured', 0, 0));
+    const configured = qoderConfigured() && /^agent_[\w-]+$/.test(config.agent_id ?? '') &&
+      /^env_[\w-]+$/.test(config.environment_id ?? '') && Number.isSafeInteger(config.limit) && config.limit >= 1 && config.limit <= 100;
+    const budget = await publicScenarioBudget(db, config.limit, userHash, request);
     const reply = method === 'GET' ? await recover(userHash, request, accessDigest, ledger)
-      : await generate(userHash, request, false, accessDigest, { ledger, binding: config, limit: config.limit });
+      : await generate(userHash, request, false, accessDigest, { ledger, binding: config, configured, budget });
+    if (reply.status === 'ready' && reply.result.upstream_state !== 'unknown') {
+      // Settle only from the authoritative terminal row. Unpersisted conflict
+      // responses and old, unowned tickets cannot release a reservation.
+      if (await ledger.matches(request)) {
+        const stored = await ledger.readResult();
+        if (stored?.final) {
+          try { await budget.settle(stored.result); }
+          catch { /* Leave the reservation intact for readback or reconciliation. */ }
+        }
+      }
+    }
     // Browser clients need only the result and readback state.
     const { trace, ...publicReply } = reply;
     return publicReply;

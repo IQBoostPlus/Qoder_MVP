@@ -28,6 +28,7 @@ function createDb() {
   ]);
   let competing;
   let failFinalRun;
+  let rejectRelease = false;
   const pk = (table, row) => {
     if (table === 'd5_generation_runs') return `${row.user_hash}|${row.run_id}`;
     if (table === 'd5_generation_slots') return `${row.user_hash}|${row.run_id}|${row.slot}|${row.event}`;
@@ -37,6 +38,7 @@ function createDb() {
     const map = tables.get(table);
     const filters = [];
     let max = Infinity;
+    let patch;
     const query = {
       insert(row) {
         if (failFinalRun && table === 'd5_generation_results' && row.kind === 'final' && row.run_id === failFinalRun) {
@@ -52,12 +54,19 @@ function createDb() {
         return { data: [row], error: null };
       },
       select() { return query; },
+      update(value) { patch = value; return query; },
       eq(column, value) { filters.push([column, value]); return query; },
       limit(value) { max = value; return query; },
       order() { return query; },
       then(resolve) {
+        if (rejectRelease && patch?.payload === '{"state":"released"}') {
+          resolve({ error: { code: '503' } });
+          return;
+        }
+        const selected = [...map.values()].filter((row) => filters.every(([column, value]) => row[column] === value)).slice(0, max);
+        if (patch) for (const row of selected) Object.assign(row, patch);
         resolve({
-          data: [...map.values()].filter((row) => filters.every(([column, value]) => row[column] === value)).slice(0, max),
+          data: selected.map(row => ({ ...row })),
           error: null,
         });
       },
@@ -69,6 +78,7 @@ function createDb() {
     tableRows: (table) => [...tables.get(table).values()],
     setCompeting(value) { competing = value; },
     setFailFinal(runId) { failFinalRun = runId; },
+    rejectRelease(value) { rejectRelease = value; },
   };
 }
 
@@ -339,3 +349,62 @@ try {
 console.log('Sites route mock: off flags, zero outbound fetches and zero ledger writes with credentials present; cached reads and D1/D2/D5 test gates verified');
 console.log('D5 service mock: database claim, dedup, conflict, last-slot race, interrupt and recovery passed');
 console.log(JSON.stringify({ sessions, interrupted: interrupted.interrupted, recovered_state: recovered.result.upstream_state }));
+
+{
+  const quotaDb = createDb();
+  const service = createD5Service({ db: quotaDb, storage });
+  const publicBudget = { limit: 1, agent_id: 'agent_configured', environment_id: 'env_configured' };
+  const keyDigest = 'd'.repeat(64);
+  const one = { ...request, run_id: 'public-quota-failed-first', request_id: 'quota-release-first-request' };
+  const two = { ...request, run_id: 'public-quota-second-winner', request_id: 'quota-release-second-request' };
+  const tickets = () => quotaDb.tableRows('d5_generation_results').filter(({ run_id }) => run_id === 'public-scenario-budget-v1');
+  quotaDb.rejectRelease(true);
+  globalThis.fetch = async (url, options) => {
+    if (new URL(url).pathname.endsWith('/sessions')) return Response.json({}, { status: 401 });
+    return normalFetch(url, options);
+  };
+  let rejected;
+  try { rejected = (await service.publicScenario(one, 'POST', keyDigest, publicBudget)).result; }
+  finally { globalThis.fetch = normalFetch; }
+  assert.equal(rejected.fallback_reason, 'unauthorized');
+  const reserved = tickets()[0];
+  assert.equal(JSON.parse(reserved.payload).request_id, one.request_id);
+  const newService = createD5Service({ db: quotaDb, storage });
+  const succeeded = (await newService.publicScenario(two, 'POST', keyDigest, publicBudget)).result;
+  assert.equal(succeeded.selection, 'generated');
+  const winner = tickets()[0];
+  assert.equal(JSON.parse(winner.payload).request_id, two.request_id);
+  assert.equal(JSON.parse(winner.payload).state, 'success');
+  quotaDb.rejectRelease(false);
+  assert.deepEqual((await newService.publicScenario(one, 'GET', keyDigest, publicBudget)).result, rejected);
+  assert.deepEqual(tickets()[0], winner);
+  assert.equal(quotaDb.tableRows('d5_generation_runs').filter(({ run_id }) => run_id === one.run_id).length, 1);
+  assert.equal(quotaDb.tableRows('d5_generation_slots').filter(({ run_id }) => run_id === one.run_id).length, 1);
+  assert.equal(quotaDb.tableRows('d5_generation_results').filter(({ run_id }) => run_id === one.run_id).length, 1);
+  console.log('Public quota recovery: failed settlement after durable fallback repaired by next claim; late read cannot overwrite the new owner.');
+
+  const legacyDb = createDb();
+  legacyDb.from('d5_generation_results').insert({ ...winner, payload: '{}' });
+  const oldService = createD5Service({ db: legacyDb, storage });
+  const old = await oldService.publicScenario(two, 'POST', keyDigest, publicBudget);
+  assert.equal(old.result.fallback_reason, 'budget');
+  assert.equal(legacyDb.tableRows('d5_generation_results').find(({ run_id }) => run_id === winner.run_id).payload, '{}');
+  console.log('Public quota compatibility: legacy tickets without an owner are preserved.');
+
+  const writeFailureDb = createDb();
+  const writing = createD5Service({ db: writeFailureDb, storage });
+  writeFailureDb.setFailFinal(one.run_id);
+  const before = modelSends;
+  await assert.rejects(writing.publicScenario(one, 'POST', keyDigest, publicBudget));
+  assert.equal(modelSends, before + 1);
+  const reservation = writeFailureDb.tableRows('d5_generation_results').find(({ run_id }) => run_id === 'public-scenario-budget-v1');
+  assert.equal(JSON.parse(reservation.payload).state, 'reserved');
+  assert.equal((await writing.publicScenario(one, 'POST', keyDigest, publicBudget)).status, 'pending');
+  assert.equal((await writing.publicScenario(two, 'POST', keyDigest, publicBudget)).result.fallback_reason, 'budget');
+  writeFailureDb.setFailFinal(null);
+  const recovered = await writing.publicScenario(one, 'GET', keyDigest, publicBudget);
+  assert.equal(recovered.result.selection, 'generated');
+  assert.equal(JSON.parse(reservation.payload).state, 'success');
+  assert.equal(modelSends, before + 1);
+  console.log('Public quota persistence: failed terminal write stays reserved; only durable GET recovery can finalize the success.');
+}

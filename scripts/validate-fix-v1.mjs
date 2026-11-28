@@ -52,6 +52,13 @@ function fixture({ mode = 'valid', failInsert, appUrl = `${base}/functions/v1/ap
       limit(count) { max = count; return query; },
       update(value) { patch = value; return query; },
       then(resolve) {
+        if (ledgerTable && patch) {
+          const where = filters.map(([column]) => `${column} = ?`).join(' AND ');
+          const fields = Object.keys(patch).map((column) => `${column} = ?`).join(', ');
+          const updated = sqlite.prepare(`UPDATE ${name} SET ${fields} WHERE ${where} RETURNING *`)
+            .all(...Object.values(patch), ...filters.map(([, value]) => value));
+          return resolve({ data: updated, error: null });
+        }
         const all = ledgerTable ? ledgerRows(name) : [...rows.values()];
         const selected = all.filter((row) => filters.every(([column, value]) => row[column] === value)).slice(0, max);
         if (patch) for (const row of selected) Object.assign(row, patch);
@@ -113,6 +120,9 @@ function fixture({ mode = 'valid', failInsert, appUrl = `${base}/functions/v1/ap
 
   const calls = { upstream: 0, sessions: 0, messages: 0, reads: 0 };
   let recoverable = false;
+  let lateText;
+  const scenarios = new Map();
+  const sessionScenarios = new Map();
   const cloud = async (url, options = {}) => {
     assert.equal(new URL(url).origin, 'https://api.qoder.com.cn');
     assert(!String(options.body).includes(runKey));
@@ -122,37 +132,48 @@ function fixture({ mode = 'valid', failInsert, appUrl = `${base}/functions/v1/ap
     if (path.endsWith('/agents')) return Response.json({ id: 'agent_fixture', version: 1 });
     if (path.endsWith('/environments')) return Response.json({ id: 'env_fixture' });
     if (path.endsWith('/sessions')) {
+      let selected;
       if (flags.get('D5_ENABLE_PUBLIC_SCENARIO') === '1') {
         const session = JSON.parse(options.body);
         assert.equal(session.agent, flags.get('QODER_AGENT_ID'));
         assert.equal(session.environment_id, flags.get('QODER_ENVIRONMENT_ID'));
+        selected = scenarios.get(session.metadata.request_id);
+        if (selected === 'unauthorized') return Response.json({}, { status: 401 });
+        if (selected === 'network') throw new Error('session did not start');
+        if (selected === 'session_timeout') {
+          return new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(new Error('session deadline')), { once: true }));
+        }
       }
-      return Response.json({ id: `sess_anonymous_${++calls.sessions}` });
+      const id = `sess_anonymous_${++calls.sessions}`;
+      sessionScenarios.set(id, selected);
+      return Response.json({ id });
     }
     assert(path.endsWith('/events'));
+    const sessionMode = sessionScenarios.get(path.split('/').at(-2)) ?? mode;
     if (options.method === 'POST') {
       const events = JSON.parse(options.body).events;
       assert.equal(events.length, 1);
       assert.equal(events[0].type, 'user.message');
       calls.messages++;
-      if (mode === 'lost') throw new Error('fixture lost the send response');
+      if (sessionMode === 'lost') throw new Error('fixture lost the send response');
+      if (sessionMode === 'send_unauthorized') return Response.json({}, { status: 403 });
       return Response.json({ accepted: true }, { status: 202, headers: { 'x-request-id': 'upstream-fixture-accepted' } });
     }
     calls.reads++;
-    if (mode === 'timeout' && !recoverable) {
+    if (sessionMode === 'timeout' && !recoverable) {
       return new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(new Error('fixture deadline')), { once: true }));
     }
-    const text = mode === 'invalid' ? '{}' : JSON.stringify(template.preset);
-    return Response.json({ data: mode === 'lost' && !recoverable ? [] : [{ type: 'agent.message', content: [{ type: 'text', text }] }] });
+    const text = sessionMode === 'invalid' ? '{}' : (['timeout', 'lost'].includes(sessionMode) && lateText) || JSON.stringify(template.preset);
+    return Response.json({ data: sessionMode === 'lost' && !recoverable ? [] : [{ type: 'agent.message', content: [{ type: 'text', text }] }] });
   };
 
   const originalFetch = globalThis.fetch;
   const originalDeno = globalThis.Deno;
   globalThis.fetch = cloud;
   globalThis.Deno = { env: { get: (key) => flags.get(key) } };
-  return { instance, flags, calls, files, ledgerRows, identityChecks: () => identityChecks,
+  return { instance, flags, calls, files, ledgerRows, scenarios, identityChecks: () => identityChecks,
     legacyLedger: (runId) => createDatabaseLedger({ db: { from }, storage, runId, userHash: owner('legacy-test-identity') }),
-    allowReply() { recoverable = true; },
+    allowReply(text) { recoverable = true; lateText = text; },
     close() { globalThis.fetch = originalFetch; globalThis.Deno = originalDeno; sqlite.close(); },
   };
 }
@@ -160,15 +181,20 @@ function fixture({ mode = 'valid', failInsert, appUrl = `${base}/functions/v1/ap
 const auth = { 'x-test-identity': 'signed-in' };
 const lookup = (request = input) => scenario + '?' + exactQuery(request);
 const post = (handle, payload = input, extra = {}) => handle(scenario, { method: 'POST', payload, ...extra });
+const result = async (promise) => (await (await promise).json()).result;
+const publicHeaders = { headers: { origin: base } };
+function enablePublic(test, limit) {
+  test.flags.delete('D5_ENABLE_ANON_EXPERIMENT');
+  test.flags.delete('D5_ANON_EXPERIMENT_BINDING');
+  test.flags.set('D5_ENABLE_PUBLIC_SCENARIO', '1');
+  test.flags.set('D5_PUBLIC_SCENARIO_LIMIT', String(limit));
+  test.flags.set('QODER_AGENT_ID', 'agent_configured');
+  test.flags.set('QODER_ENVIRONMENT_ID', 'env_configured');
+}
 {
   const test = fixture();
   try {
-    test.flags.delete('D5_ENABLE_ANON_EXPERIMENT');
-    test.flags.delete('D5_ANON_EXPERIMENT_BINDING');
-    test.flags.set('D5_ENABLE_PUBLIC_SCENARIO', '1');
-    test.flags.set('D5_PUBLIC_SCENARIO_LIMIT', '1');
-    test.flags.set('QODER_AGENT_ID', 'agent_configured');
-    test.flags.set('QODER_ENVIRONMENT_ID', 'env_configured');
+    enablePublic(test, 1);
     const handle = test.instance();
     const extra = { headers: { origin: base } };
     const second = { ...input, run_id: 'another-public-training-run' };
@@ -189,7 +215,106 @@ const post = (handle, payload = input, extra = {}) => handle(scenario, { method:
     console.log('Public scenario: configured Agent, anonymous generation, isolated readback and site-wide limit passed.');
   } finally { test.close(); }
 }
-const result = async (promise) => (await (await promise).json()).result;
+
+const publicBudgetRows = (test) => test.ledgerRows('d5_generation_results').filter(({ run_id }) => run_id === 'public-scenario-budget-v1');
+const publicBudget = (test) => publicBudgetRows(test).map(({ payload }) => JSON.parse(payload));
+const publicRequest = (name) => ({ ...input, run_id: `public-quota-run-${name}`, request_id: `public-quota-request-${name}` });
+
+for (const [mode, reason, sends] of [['not_configured', 'not_configured', 0], ['unauthorized', 'unauthorized', 0],
+  ['network', 'network', 0], ['invalid', 'invalid_candidate', 1], ['send_unauthorized', 'unauthorized', 1],
+  ['session_timeout', 'timeout', 0]]) {
+  const test = fixture();
+  const timer = globalThis.setTimeout;
+  if (mode === 'session_timeout') globalThis.setTimeout = (callback, ms, ...args) => timer(callback, ms === 14500 ? 40 : ms, ...args);
+  try {
+    enablePublic(test, 1);
+    const handle = test.instance();
+    const first = publicRequest(mode);
+    test.scenarios.set(first.request_id, mode);
+    if (mode === 'not_configured') test.flags.delete('QODER_AGENT_ID');
+    const failed = await result(post(handle, first, publicHeaders));
+    assert.equal(failed.fallback_reason, reason);
+    assert.equal(failed.upstream_state, sends ? 'complete' : 'not_sent');
+    assert.equal(test.calls.messages, sends);
+    assert(publicBudget(test).every(({ state }) => state === 'released'));
+    if (mode !== 'not_configured') assert.deepEqual(publicBudget(test), [{ state: 'released' }]);
+    test.flags.set('QODER_AGENT_ID', 'agent_configured');
+    const audit = () => ['runs', 'slots', 'results'].map((table) =>
+      test.ledgerRows('d5_generation_' + table).filter(({ run_id }) => run_id === first.run_id));
+    const before = audit();
+    assert.equal(before[0].length, 1);
+    assert.equal(before[1].length, mode === 'not_configured' ? 0 : sends ? 3 : 1);
+    assert.equal(before[2].length, 1);
+    const next = publicRequest('success');
+    const successful = await result(post(handle, next, publicHeaders));
+    assert.equal(successful.selection, 'generated');
+    assert.equal(successful.provider, 'qoder');
+    assert.equal(successful.fallback_reason, null);
+    assert.equal(publicBudget(test)[0].state, 'success');
+    assert.equal(publicBudget(test)[0].request_id, next.request_id);
+    assert.deepEqual(await result(post(handle, first, publicHeaders)), failed);
+    assert.deepEqual(await result(handle(lookup(first))), failed);
+    assert.deepEqual(audit(), before);
+    assert.equal((await result(post(handle, { ...first, request_id: next.request_id }, publicHeaders))).fallback_reason, 'conflict');
+    assert.equal(publicBudget(test)[0].request_id, next.request_id);
+    assert.equal(test.calls.messages, sends + 1);
+    console.log(`Public quota limit=1: ${reason}/${failed.upstream_state} -> another request succeeded; replay and audit preserved.`);
+  } finally { globalThis.setTimeout = timer; test.close(); }
+}
+
+{
+  const test = fixture();
+  try {
+    enablePublic(test, 3);
+    const handle = test.instance();
+    const failures = Array.from({ length: 3 }, (_, i) => publicRequest(`failure-${i}`));
+    // Hold all reservations concurrently before returning failed candidates.
+    for (const request of failures) test.scenarios.set(request.request_id, 'invalid');
+    const failed = await Promise.all(failures.map(request => result(post(test.instance(), request, publicHeaders))));
+    assert(failed.every(({ fallback_reason }) => fallback_reason === 'invalid_candidate'));
+    const attempts = Array.from({ length: 4 }, (_, i) => publicRequest(`parallel-${i}`));
+    const first = await result(post(handle, attempts[0], publicHeaders));
+    assert.equal(first.selection, 'generated');
+    const parallel = await Promise.all(attempts.slice(1).map(request => result(post(test.instance(), request, publicHeaders))));
+    assert.equal(parallel.filter(({ selection }) => selection === 'generated').length, 2);
+    assert.equal(parallel.filter(({ fallback_reason }) => fallback_reason === 'budget').length, 1);
+    assert.equal(publicBudget(test).filter(({ state }) => state === 'success').length, 3);
+    assert.equal(test.calls.messages, 6);
+    console.log('Public quota limit=3: three failures, fourth request generated, concurrent reused slots respect the limit.');
+  } finally { test.close(); }
+}
+
+for (const selection of ['generated', 'fallback']) {
+  const test = fixture();
+  const timer = globalThis.setTimeout;
+  globalThis.setTimeout = (callback, ms, ...args) => timer(callback, ms === 14500 ? 40 : ms, ...args);
+  try {
+    enablePublic(test, 1);
+    const handle = test.instance();
+    const first = publicRequest('unknown');
+    test.scenarios.set(first.request_id, 'timeout');
+    const unknown = await result(post(handle, first, publicHeaders));
+    assert.equal(unknown.fallback_reason, 'timeout');
+    assert.equal(unknown.upstream_state, 'unknown');
+    assert.equal(publicBudget(test)[0].state, 'reserved');
+    assert.equal(publicBudget(test)[0].request_id, first.request_id);
+    assert.equal((await result(post(test.instance(), publicRequest('while-pending'), publicHeaders))).fallback_reason, 'budget');
+    assert.deepEqual(await result(post(handle, first, publicHeaders)), unknown);
+    assert.equal(test.calls.messages, 1);
+    test.allowReply(selection === 'fallback' ? '{}' : undefined);
+    const reads = await Promise.all([result(handle(lookup(first))), result(test.instance()(lookup(first)))]);
+    assert.equal(reads[0].selection, selection);
+    assert.deepEqual(reads[1], reads[0]);
+    assert.equal(test.calls.messages, 1);
+    assert.equal(publicBudget(test)[0].state, selection === 'generated' ? 'success' : 'released');
+    const next = await result(post(handle, publicRequest('after-readback'), publicHeaders));
+    assert.equal(next.fallback_reason, selection === 'generated' ? 'budget' : null);
+    assert.equal(test.ledgerRows('d5_generation_results').filter(({ run_id }) => run_id === first.run_id).length, 2);
+    assert.equal(test.ledgerRows('d5_generation_slots').filter(({ run_id }) => run_id === first.run_id).length, 3);
+    assert.equal(test.calls.messages, selection === 'generated' ? 1 : 2);
+    console.log(`Public quota unknown -> ${selection}: GET-only settlement, concurrent replay and audit preserved.`);
+  } finally { globalThis.setTimeout = timer; test.close(); }
+}
 
 // Sites may give the Function an internal URL while the browser sends the public origin.
 {
